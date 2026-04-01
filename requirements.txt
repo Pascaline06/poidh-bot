@@ -1,0 +1,3 @@
+pinata-fdk
+google-generativeai
+requests
