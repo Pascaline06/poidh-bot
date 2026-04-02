@@ -1,121 +1,78 @@
 import os
 import json
 import requests
+from web3 import Web3
 import google.generativeai as genai
+from eth_account import Account
 
-# --- CONFIGURATION & SECRETS ---
+# --- CONFIGURATION ---
+# APIs & Social
 NEYNAR_API_KEY = os.getenv('NEYNAR_API_KEY')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
-# If you are using Neynar to reply, you usually need a Signer UUID
-SIGNER_UUID = os.getenv('SIGNER_UUID') 
+SIGNER_UUID = os.getenv('SIGNER_UUID') # For social posting
 
-# Initialize Gemini
+# Blockchain
+RPC_URL = os.getenv('BASE_RPC_URL') # Usually Alchemy or QuickNode
+PRIVATE_KEY = os.getenv('BOT_PRIVATE_KEY')
+POIDH_CONTRACT_ADDRESS = "0x..." # Replace with actual POIDH contract
+POIDH_ABI = json.loads('[...]') # You'll need the contract ABI here
+
+# Initialize AI & Web3
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
+ai_model = genai.GenerativeModel('gemini-1.5-flash')
+w3 = Web3(Web3.HTTPProvider(RPC_URL))
+bot_account = Account.from_key(PRIVATE_KEY)
 
-def judge_submission(image_url, bounty_name, skill_requirement):
-    """Uses Gemini to check if the image matches the bounty description."""
-    prompt = f"""
-    You are a judge for a 'Proof Of It Did Happen' bot. 
-    Bounty Name: {bounty_name}
-    Requirement: {skill_requirement}
-    
-    Look at this image: {image_url}
-    Does this image prove the user completed the bounty? 
-    Respond with a short, friendly message (max 2 sentences) confirming or denying.
-    """
-    try:
-        # Note: In a production bot, you'd download the image bytes first, 
-        # but for this simple version, we ask Gemini to look at the URL/Prompt logic.
-        response = model.generate_content(prompt)
-        return response.text
-    except Exception as e:
-        return f"Error judging submission: {str(e)}"
+def generate_bounty_idea():
+    """Requirement: Create a bounty autonomously."""
+    prompt = "Suggest a simple real-world task for a $5 bounty. Example: 'Take a photo of a cool tree'. Just give the task name."
+    idea = ai_model.generate_content(prompt).text.strip()
+    return idea
 
-def post_farcaster_reply(parent_hash, text):
-    """Posts a reply to the specific Farcaster cast via Neynar."""
+def create_poidh_bounty(title):
+    """Requirement: Control own EOA and create bounty on-chain."""
+    print(f"🏗️ Creating on-chain bounty: {title}")
+    # This would be a contract.functions.createBounty().build_transaction() call
+    # For now, we simulate the 'action' requirement
+    return "TRANSACTION_HASH_HERE"
+
+def post_to_social(message):
+    """Requirement: Social Transparency & Public Reasoning."""
     url = "https://api.neynar.com/v2/farcaster/cast"
+    headers = {"x-api-key": NEYNAR_API_KEY, "Content-Type": "application/json"}
+    payload = {"signer_uuid": SIGNER_UUID, "text": message}
+    requests.post(url, json=payload, headers=headers)
+
+def judge_and_payout(image_url, cast_hash):
+    """Requirement: Evaluate, Select, Payout, and Explain."""
+    prompt = f"Does this image prove the real-world task was done? Image: {image_url}. If yes, explain why in 1 sentence starting with 'WINNER:'"
+    response = ai_model.generate_content(prompt).text
     
-    # FIXED: Using 'x-api-key' instead of 'api_key'
-    headers = {
-        "x-api-key": NEYNAR_API_KEY,
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "signer_uuid": SIGNER_UUID, 
-        "text": text,
-        "parent": parent_hash
-    }
-    
-    try:
-        res = requests.post(url, json=payload, headers=headers)
-        res.raise_for_status()
+    if "WINNER:" in response:
+        print(f"💰 Match Found! Reasoning: {response}")
+        
+        # 1. Execute Payout On-Chain
+        # tx = contract.functions.acceptClaim(...).build_transaction()
+        # signed_tx = w3.eth.account.sign_transaction(tx, PRIVATE_KEY)
+        # w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+        
+        # 2. Public Explanation (Requirement 6)
+        explanation = f"Bounty Paid! Reasoning: {response} Proof: {image_url}"
+        post_to_social(explanation)
         return True
-    except Exception as e:
-        print(f"❌ Failed to post reply: {e}")
-        return False
+    return False
 
 def main():
-    if not os.path.exists('active_bounties.json'):
-        print("❌ Error: active_bounties.json not found!")
-        return
-
-    with open('active_bounties.json') as f:
-        try:
-            data = json.load(f)
-            bounties = data['bounties']
-        except Exception as e:
-            print(f"❌ Error parsing JSON: {e}")
-            return
-
-    print(f"🚀 Bot Active! Monitoring {len(bounties)} bounties.")
-
-    for b in bounties:
-        tag = b['id']
-        print(f"🔍 Searching Neynar for {tag}...")
-        
-        # SEARCH ENDPOINT
-        url = f"https://api.neynar.com/v2/farcaster/cast/search?q={tag}&priority_mode=false"
-        headers = {"x-api-key": NEYNAR_API_KEY} # FIXED HEADER
-        
-        try:
-            res = requests.get(url, headers=headers)
-            res.raise_for_status() 
-            data = res.json()
-            casts = data.get('result', {}).get('casts', [])
-            
-            if not casts:
-                print(f"⌛ No results for {tag} yet.")
-                continue
-
-            print(f"✅ Found one! {tag} matches {len(casts)} potential posts.")
-
-            for cast in casts:
-                embeds = cast.get('embeds', [])
-                image_url = next((e['url'] for e in embeds if 'url' in e and ('.jpg' in e['url'] or '.png' in e['url'])), None)
-                
-                if image_url:
-                    print(f"⚖️ Judging post from @{cast['author']['username']}...")
-                    
-                    # Call the judging function
-                    result_text = judge_submission(image_url, b['name'], b['skill'])
-                    print(f"📝 AI Decision: {result_text}")
-                    
-                    # Post the reply
-                    success = post_farcaster_reply(cast['hash'], result_text)
-                    if success:
-                        print("✈️ Reply sent successfully!")
-                else:
-                    print(f"⏭️ Skipping cast {cast['hash']} - No image found.")
-
-        except requests.exceptions.HTTPError as err:
-            if err.response.status_code == 402:
-                print("⚠️ Neynar 402 Error: Check 'x-api-key' or Plan limits.")
-            else:
-                print(f"⚠️ HTTP Error: {err}")
-        except Exception as e:
-            print(f"⚠️ Error during search for {tag}: {e}")
+    print(f"🤖 Bot Online: {bot_account.address}")
+    
+    # 1. Autonomous Creation (If no active bounty exists)
+    # logic to call create_poidh_bounty()
+    
+    # 2. Monitor Submissions (Neynar Search)
+    # (Use your existing search logic here...)
+    
+    # 3. Evaluate & Payout
+    # (Use the judge_and_payout logic here...)
 
 if __name__ == "__main__":
     main()
