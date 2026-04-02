@@ -30,14 +30,20 @@ def main():
 
     for b in bounties:
         tag = b['id']
-        print(f"Searching for #{tag}...")
+        print(f"Searching for {tag}...")
         
-        # This URL uses the special code for '#' to avoid errors
-        url = f"https://api.pinata.cloud/v3/farcaster/casts?search=%23{tag}"
+        # We removed the %23 and # here to prevent the JSON error. 
+        # Pinata will search for the text "B01" directly.
+        url = f"https://api.pinata.cloud/v3/farcaster/casts?search={tag}"
         res = requests.get(url, headers={"Authorization": f"Bearer {PINATA_JWT}"})
         
+        # If Pinata sends an error, we print it and skip to avoid crashing
+        if res.status_code != 200:
+            print(f"Pinata Error: {res.text}")
+            continue
+
         casts = res.json().get('casts', [])
-        print(f"Found {len(casts)} posts.")
+        print(f"Found {len(casts)} potential posts.")
 
         for cast in casts:
             embeds = cast.get('embeds', [])
@@ -48,6 +54,7 @@ def main():
                 result = judge_submission(image_url, b['name'], b['skill'])
                 print(f"Result: {result}")
                 post_farcaster_reply(cast['hash'], result)
+                print("Reply sent!")
 
 if __name__ == "__main__":
     main()
