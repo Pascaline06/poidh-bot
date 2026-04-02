@@ -32,17 +32,16 @@ def main():
         tag = b['id']
         print(f"Searching for {tag}...")
         
-        # We removed the %23 and # here to prevent the JSON error. 
-        # Pinata will search for the text "B01" directly.
-        url = f"https://api.pinata.cloud/v3/farcaster/casts?search={tag}"
+        # FIXED URL: Pinata moved the search endpoint to /casts/search
+        url = f"https://api.pinata.cloud/v3/farcaster/casts/search?text={tag}"
         res = requests.get(url, headers={"Authorization": f"Bearer {PINATA_JWT}"})
         
-        # If Pinata sends an error, we print it and skip to avoid crashing
         if res.status_code != 200:
-            print(f"Pinata Error: {res.text}")
+            print(f"Pinata Error: {res.status_code} - Make sure your API key is correct!")
             continue
 
-        casts = res.json().get('casts', [])
+        # Pinata V3 Search returns a different structure
+        casts = res.json().get('data', {}).get('casts', [])
         print(f"Found {len(casts)} potential posts.")
 
         for cast in casts:
