@@ -1,3 +1,2 @@
-pinata-fdk
-google-generativeai
+google-genai
 requests
