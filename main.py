@@ -22,6 +22,7 @@ def main():
 
     # Loop through each bounty in your JSON file
     for bounty in bounties_data['bounties']:
+        tag = f"#{bounty['id']}"
         bounty_id = bounty['id']    # e.g., "B01"
         skill = bounty['skill']     # e.g., "beverage-verifier"
         
