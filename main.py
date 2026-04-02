@@ -3,19 +3,17 @@ import json
 import requests
 from google import genai
 
-# Setup
+# 1. Setup
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 PINATA_JWT = os.getenv("PINATA_JWT")
 
 def post_farcaster_reply(parent_hash, text):
-    # This sends the message back to Farcaster
     url = "https://api.pinata.cloud/v3/farcaster/casts"
     headers = {"Authorization": f"Bearer {PINATA_JWT}", "Content-Type": "application/json"}
     data = {"text": text, "parent": {"hash": parent_hash}}
     requests.post(url, json=data, headers=headers)
 
 def judge_submission(image_url, bounty_name, skill):
-    # This uses the Gemini 'Brain'
     prompt = f"You are a professional {skill}. Judge this for '{bounty_name}'. If valid, say 'PASS' + compliment. If not, 'FAIL' + reason."
     img_data = requests.get(image_url).content
     response = client.models.generate_content(
@@ -32,24 +30,20 @@ def main():
 
     for b in bounties:
         tag = b['id']
-        print(f"Searching for {tag}...")
+        print(f"Searching Farcaster for #{tag}...")
         
-        # PINATA V3 UPDATE: The search moved to this specific address
-        url = f"https://api.pinata.cloud/v3/farcaster/casts?search={tag}"
-        headers = {
-            "Authorization": f"Bearer {PINATA_JWT}",
-            "accept": "application/json"
-        }
+        # PINATA V3 UPDATE: This is the specific URL for searching text/hashtags
+        url = f"https://api.pinata.cloud/v3/farcaster/casts/search?text={tag}"
+        headers = {"Authorization": f"Bearer {PINATA_JWT}"}
         
         res = requests.get(url, headers=headers)
         
         if res.status_code != 200:
-            # This will tell us EXACTLY what Pinata is seeing
             print(f"Pinata Error {res.status_code}: {res.text}")
             continue
 
-        # Pinata V3 usually wraps the results in a 'casts' list
-        data = res.json()
+        # V3 search returns results inside 'data' -> 'casts'
+        data = res.json().get('data', {})
         casts = data.get('casts', [])
         print(f"Found {len(casts)} potential posts.")
 
@@ -62,7 +56,7 @@ def main():
                 result = judge_submission(image_url, b['name'], b['skill'])
                 print(f"Result: {result}")
                 post_farcaster_reply(cast['hash'], result)
-                print("Reply sent to Farcaster!")
+                print("Reply sent!")
 
 if __name__ == "__main__":
     main()
