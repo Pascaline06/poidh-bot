@@ -1,0 +1,9 @@
+{
+  "bounties": [
+    {
+      "id": "B01",
+      "name": "Beverage Verification",
+      "skill": "beverage-verifier"
+    }
+  ]
+}
