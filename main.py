@@ -1,44 +1,53 @@
-def main():
-    # Load your "Active Bounties" list
-    if not os.path.exists('active_bounties.json'):
-        print("Error: active_bounties.json not found!")
-        return
+import os
+import json
+import requests
+from google import genai
 
+# Setup
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+PINATA_JWT = os.getenv("PINATA_JWT")
+
+def post_farcaster_reply(parent_hash, text):
+    url = "https://api.pinata.cloud/v3/farcaster/casts"
+    headers = {"Authorization": f"Bearer {PINATA_JWT}", "Content-Type": "application/json"}
+    data = {"text": text, "parent": {"hash": parent_hash}}
+    requests.post(url, json=data, headers=headers)
+
+def judge_submission(image_url, bounty_name, skill):
+    prompt = f"You are a professional {skill}. Judge this for '{bounty_name}'. If valid, say 'PASS' + compliment. If not, 'FAIL' + reason."
+    img_data = requests.get(image_url).content
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=[prompt, {"mime_type": "image/jpeg", "data": img_data}]
+    )
+    return response.text
+
+def main():
     with open('active_bounties.json') as f:
-        data = json.load(f)
-        bounties = data['bounties']
+        bounties = json.load(f)['bounties']
 
     print(f"Bot Active! Monitoring {len(bounties)} bounties.")
 
-    for bounty in bounties:
-        # THE FIX: We use the ID but tell Pinata it's a hashtag in the URL
-        tag_id = bounty['id'] 
-        print(f"Searching Farcaster for mentions of #{tag_id}...")
+    for b in bounties:
+        tag = b['id']
+        print(f"Searching for #{tag}...")
         
-        # We changed the URL slightly here to be more reliable
-        search_url = f"https://api.pinata.cloud/v3/farcaster/casts?search=%23{tag_id}"
-        headers = {"Authorization": f"Bearer {PINATA_JWT}"}
+        # This URL uses the special code for '#' to avoid errors
+        url = f"https://api.pinata.cloud/v3/farcaster/casts?search=%23{tag}"
+        res = requests.get(url, headers={"Authorization": f"Bearer {PINATA_JWT}"})
         
-        response = requests.get(search_url, headers=headers)
-        
-        # Safety check: If Pinata fails, tell us why instead of crashing
-        if response.status_code != 200:
-            print(f"Pinata Error {response.status_code}: {response.text}")
-            continue
-
-        casts = response.json().get('casts', [])
-
-        if not casts:
-            print(f"No new posts found for #{tag_id}.")
-            continue
+        casts = res.json().get('casts', [])
+        print(f"Found {len(casts)} posts.")
 
         for cast in casts:
             embeds = cast.get('embeds', [])
             image_url = next((e['url'] for e in embeds if 'url' in e and ('.jpg' in e['url'] or '.png' in e['url'])), None)
             
             if image_url:
-                print(f"Found image from {cast['author']['username']}. Judging...")
-                result = judge_submission(image_url, bounty['name'], bounty['skill'])
+                print(f"Judging post from {cast['author']['username']}...")
+                result = judge_submission(image_url, b['name'], b['skill'])
                 print(f"Result: {result}")
                 post_farcaster_reply(cast['hash'], result)
-                print("Reply posted successfully.")
+
+if __name__ == "__main__":
+    main()
