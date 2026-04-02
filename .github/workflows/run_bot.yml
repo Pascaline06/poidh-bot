@@ -9,12 +9,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - name: Install Tools
         run: pip install -r requirements.txt
+
       - name: Start the Bot
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -22,4 +25,5 @@ jobs:
           PINATA_GATEWAY: ${{ secrets.PINATA_GATEWAY }}
           APP_FID: ${{ secrets.APP_FID }}
           FARCASTER_DEVELOPER_MNEMONIC: ${{ secrets.FARCASTER_DEVELOPER_MNEMONIC }}
-        run: python main.py
+          NEYNAR_API_KEY: ${{ secrets.NEYNAR_API_KEY }} # Added this!
+        run: python -u main.py # Added -u for real-time logs
