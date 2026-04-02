@@ -1,30 +1,34 @@
 import os
-import google.generativeai as genai
-from pinata_fdk import PinataFDK
+import json
+import requests
+from google import genai
 
-# 1. Setup the "Locker" Keys
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-fdk = PinataFDK(
-    pinata_jwt=os.getenv("PINATA_JWT"),
-    pinata_gateway=os.getenv("PINATA_GATEWAY"),
-    app_fid=os.getenv("APP_FID"),
-    app_mnemonic=os.getenv("FARCASTER_DEVELOPER_MNEMONIC")
-)
+# 1. Setup our connections
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+PINATA_JWT = os.getenv("PINATA_JWT")
+MY_FID = os.getenv("APP_FID")
 
-# 2. Setup the AI "Vision"
-model = genai.GenerativeModel('gemini-1.5-flash')
-
-def verify_beverage(image_url):
-    prompt = "Is there a drink/beverage in this image? Answer with only 'YES' or 'NO'."
-    # In a real bot, we'd download the image and send it to Gemini here
-    # For now, we'll return YES to test the flow
-    return "YES"
+def get_skill_rules(skill_name):
+    # This looks at your SKILL.md to find the rules for the AI
+    # For now, it just returns a simple instruction
+    return f"Check if the image satisfies the requirements for: {skill_name}"
 
 def main():
-    print("Bot is starting... checking for beverage bounties!")
-    # The bot will loop through mentions here using Pinata
-    # (Simplified for your first run)
-    print("Search complete. No new mentions found.")
+    # Load your "Active Bounties" list
+    with open('active_bounties.json') as f:
+        bounties_data = json.load(f)
+    
+    print(f"Bot Active! Monitoring {len(bounties_data['bounties'])} bounties.")
 
+    # Loop through each bounty in your JSON file
+    for bounty in bounties_data['bounties']:
+        bounty_id = bounty['id']    # e.g., "B01"
+        skill = bounty['skill']     # e.g., "beverage-verifier"
+        
+        print(f"Searching Farcaster for mentions of {bounty_id}...")
+        
+        # (In a real run, this is where the bot asks Pinata for mentions)
+        # We will add the 'Reply' code once we confirm the AI sees the images!
+        
 if __name__ == "__main__":
     main()
