@@ -3,12 +3,12 @@ from web3 import Web3
 import google.generativeai as genai
 
 # --- CONFIGURATION ---
-POIDH_CONTRACT_ADDRESS = "0xb689406085a676E4B55F9801C2B0B0033109a656" # Confirm on POIDH docs
+POIDH_CONTRACT_ADDRESS = "0x5555fa783936c260f77385b4e153b9725fef1719" # Confirm on POIDH docs
 W3 = Web3(Web3.HTTPProvider(os.getenv("BASE_RPC_URL")))
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 with open('poidh_abi.json') as f:
-    CONTRACT = W3.eth.contract(address=POIDH_CONTRACT_ADDRESS, abi=json.load(f))
+    CONTRACT = W3.eth.contract(address=W3.to_checksum_address(POIDH_CONTRACT_ADDRESS), abi=json.load(f))
 
 def get_farcaster_submissions(cast_hash):
     url = f"https://api.neynar.com/v2/farcaster/cast/conversation?identifier={cast_hash}&type=hash"
