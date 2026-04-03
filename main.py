@@ -1,75 +1,46 @@
 import os
-import requests
 from web3 import Web3
-import google.generativeai as genai
 
 # --- CONFIG ---
 RPC_URL = os.getenv("BASE_RPC_URL")
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-CONTRACT_ADDR = "0x5555fa783936c260f77385b4e153b9725fef1719"
-EVENT_ABI = [{
-    "anonymous": False,
-    "inputs": [
-        {"indexed": True, "name": "bountyId", "type": "uint256"},
-        {"indexed": True, "name": "claimId", "type": "uint256"},
-        {"indexed": False, "name": "claimer", "type": "address"},
-        {"indexed": False, "name": "submission", "type": "string"}
-    ],
-    "name": "ClaimCreated",
-    "type": "event"
-}]
+# This is the "Topic" for a ClaimCreated event (standard across most bounty contracts)
+CLAIM_TOPIC = "0x" + Web3.keccak(text="ClaimCreated(uint256,uint256,address,string)").hex()
 
-CONTRACT = w3.eth.contract(address=w3.to_checksum_address(CONTRACT_ADDR), abi=EVENT_ABI)
-TARGET_BOUNTY = 136
-
-def run_event_review():
-    print(f"🤖 Starting Full Scan for Bounty #{TARGET_BOUNTY}...")
-    
+def find_the_real_contract():
+    print("🔎 Searching for the correct Bounty contract address...")
     try:
         current_block = w3.eth.block_number
-        # Scan the last 21,600 blocks (~12 hours) in chunks of 2000
-        total_blocks_to_scan = 21600
-        chunk_size = 2000
-        
-        found_any = False
-        start_at = current_block - total_blocks_to_scan
-        
-        for i in range(current_block, start_at, -chunk_size):
-            from_blk = max(start_at, i - chunk_size)
-            to_blk = i
-            
-            print(f"🔎 Scanning: {from_blk} to {to_blk}...")
-            
-            logs = CONTRACT.events.ClaimCreated().get_logs(
-                from_block=from_blk,
-                to_block=to_blk,
-                argument_filters={'bountyId': TARGET_BOUNTY}
-            )
+        # Search the last 500 blocks for ANY ClaimCreated event
+        logs = w3.eth.get_logs({
+            "fromBlock": current_block - 500,
+            "toBlock": current_block,
+            "topics": [CLAIM_TOPIC]
+        })
 
-            if logs:
-                found_any = True
-                print(f"✅ SUCCESS! Found {len(logs)} submissions in this chunk.")
-                model = genai.GenerativeModel('gemini-1.5-flash')
+        if not logs:
+            print("ℹ️ No claim events found in the last 500 blocks. Trying a wider scan...")
+            logs = w3.eth.get_logs({
+                "fromBlock": current_block - 2000,
+                "toBlock": current_block,
+                "topics": [CLAIM_TOPIC]
+            })
 
-                for log in logs:
-                    claim_id = log.args.claimId
-                    img_url = log.args.submission
-                    print(f"\n--- 🔍 AI REVIEW: CLAIM #{claim_id} ---")
-                    
-                    img_resp = requests.get(img_url).content
-                    response = model.generate_content([
-                        "Describe if a hand is holding a book, then end with VERDICT: YES or NO.",
-                        {'mime_type': 'image/jpeg', 'data': img_resp}
-                    ])
-                    print(f"Analysis: {response.text}")
+        found_addresses = set()
+        for log in logs:
+            found_addresses.add(log['address'])
         
-        if not found_any:
-            print("ℹ️ Finished 12-hour scan. No claims found for this Bounty ID.")
+        if found_addresses:
+            print(f"✅ FOUND {len(found_addresses)} POTENTIAL CONTRACT(S):")
+            for addr in found_addresses:
+                print(f"👉 {addr}")
+            print("\nCompare these to the '0x5555...' address in your code. One of these is the winner.")
+        else:
+            print("❌ No Claim events found at all. The contract might use a different event name.")
 
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"❌ Error during hunt: {e}")
 
 if __name__ == "__main__":
-    run_event_review()
+    find_the_real_contract()
