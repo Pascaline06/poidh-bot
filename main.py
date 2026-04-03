@@ -13,27 +13,26 @@ CLAIM_TOPIC = "0x8e899c06f3271c67860e48d8347164d6a78655c6be9fcfaa86f714cc7d074c7
 TARGET_IDS = [705, 706]
 
 def analyze_with_gemini(img_url):
-    """Sends raw image bytes to Gemini 3.1 Flash Lite."""
-    # Using v1beta and Gemini 3.1 Flash Lite Preview as confirmed in AI Studio
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key={API_KEY}"
+    """Bypasses restricted gateways and sends image to Gemini 3.1 Flash Lite."""
+    # Using v1beta and 3.1 Lite model from your AI Studio
+    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key={API_KEY}"
     
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
-    }
+    # FIX: Swap the restricted Pinata gateway for the faster Cloudflare public gateway
+    if "mypinata.cloud/ipfs/" in img_url:
+        cid = img_url.split("/ipfs/")[-1]
+        img_url = f"https://cloudflare-ipfs.com/ipfs/{cid}"
+    
+    headers = {"User-Agent": "Mozilla/5.0"}
 
     try:
-        # 1. Download image with streaming to ensure we get the full raw content
-        img_response = requests.get(img_url, headers=headers, timeout=15, stream=True)
+        # 1. Download image
+        img_response = requests.get(img_url, headers=headers, timeout=15)
         img_response.raise_for_status()
         
-        # 2. Convert raw content to Base64
-        img_data = img_response.content
-        if len(img_data) < 100:
-            return {"error": "Image file too small or invalid (might be a blocked gateway page)."}
-            
-        img_b64 = base64.b64encode(img_data).decode('utf-8')
+        # 2. Convert to Base64
+        img_b64 = base64.b64encode(img_response.content).decode('utf-8')
         
-        # 3. Payload
+        # 3. Request Payload
         payload = {
             "contents": [{
                 "parts": [
@@ -46,8 +45,7 @@ def analyze_with_gemini(img_url):
             }]
         }
         
-        # 4. API Request
-        res = requests.post(url, json=payload, timeout=20)
+        res = requests.post(api_url, json=payload, timeout=20)
         
         if res.status_code == 200:
             return res.json()
@@ -63,7 +61,7 @@ def run_automated_review():
         print(f"Checking IDs {TARGET_IDS} near block {current_block}...")
         
         logs = w3.eth.get_logs({
-            "fromBlock": current_block - 5000, # Narrower range for speed
+            "fromBlock": current_block - 5000,
             "address": w3.to_checksum_address(CONTRACT_ADDR),
             "topics": [CLAIM_TOPIC]
         })
@@ -76,8 +74,7 @@ def run_automated_review():
                     start_index = raw_data.find("68747470")
                     img_url = bytes.fromhex(raw_data[start_index:]).decode('utf-8', 'ignore').strip('\x00')
                     
-                    print(f"\n[!] ID Found: {on_chain_id}")
-                    print(f"[!] URL: {img_url}")
+                    print(f"\n[!] ID: {on_chain_id} | URL: {img_url}")
                     
                     result = analyze_with_gemini(img_url)
                     
