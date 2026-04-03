@@ -30,17 +30,18 @@ def run_event_review():
     
     try:
         current_block = w3.eth.block_number
-        # We can look back even further now because we are filtering by ID
-        # Looking back 20,000 blocks (~11 hours)
+        # Reduced to 5,000 blocks (~2.5 hours) to avoid "Payload Too Large" error
+        search_start = current_block - 5000
         
-        # This 'argument_filters' tells the node to ONLY send us Bounty 136
+        print(f"🔎 Scanning blocks {search_start} to {current_block}...")
+        
         logs = CONTRACT.events.ClaimCreated().get_logs(
-            from_block=current_block - 20000,
+            from_block=search_start,
             argument_filters={'bountyId': TARGET_BOUNTY}
         )
 
         if not logs:
-            print(f"ℹ️ No claims found for Bounty #{TARGET_BOUNTY} in the last 11 hours.")
+            print(f"ℹ️ No claims found for Bounty #{TARGET_BOUNTY} in the last 2.5 hours.")
             return
 
         print(f"✅ Found {len(logs)} submissions! Starting AI analysis...")
@@ -51,7 +52,6 @@ def run_event_review():
             img_url = log.args.submission
             
             print(f"\n--- 🎯 MATCH FOUND: CLAIM #{claim_id} ---")
-            print(f"Image Link: {img_url}")
             
             try:
                 img_resp = requests.get(img_url).content
@@ -65,8 +65,6 @@ def run_event_review():
 
     except Exception as e:
         print(f"❌ Error: {e}")
-        if "413" in str(e):
-            print("💡 Node still overwhelmed. Try reducing the block range to 5000.")
 
 if __name__ == "__main__":
     run_event_review()
