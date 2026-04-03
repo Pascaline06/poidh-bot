@@ -26,14 +26,14 @@ CONTRACT = w3.eth.contract(address=w3.to_checksum_address(CONTRACT_ADDR), abi=EV
 TARGET_BOUNTY = 136
 
 def run_event_review():
-    print(f"🤖 Searching specifically for Bounty #{TARGET_BOUNTY}...")
+    print(f"🤖 Searching for Bounty #{TARGET_BOUNTY}...")
     
     try:
         current_block = w3.eth.block_number
-        # Reduced to 5,000 blocks (~2.5 hours) to avoid "Payload Too Large" error
-        search_start = current_block - 5000
+        # 7,500 blocks is roughly 4 hours and 10 minutes on Base
+        search_start = current_block - 7500
         
-        print(f"🔎 Scanning blocks {search_start} to {current_block}...")
+        print(f"🔎 Scanning from block {search_start} to {current_block}...")
         
         logs = CONTRACT.events.ClaimCreated().get_logs(
             from_block=search_start,
@@ -41,7 +41,8 @@ def run_event_review():
         )
 
         if not logs:
-            print(f"ℹ️ No claims found for Bounty #{TARGET_BOUNTY} in the last 2.5 hours.")
+            print(f"ℹ️ No claims found for #{TARGET_BOUNTY} in the last 4 hours.")
+            print("If you see them on the site, the RPC might be lagging. Try again in a few mins.")
             return
 
         print(f"✅ Found {len(logs)} submissions! Starting AI analysis...")
@@ -50,8 +51,7 @@ def run_event_review():
         for log in logs:
             claim_id = log.args.claimId
             img_url = log.args.submission
-            
-            print(f"\n--- 🎯 MATCH FOUND: CLAIM #{claim_id} ---")
+            print(f"\n--- 🔍 AI REVIEW: CLAIM #{claim_id} ---")
             
             try:
                 img_resp = requests.get(img_url).content
@@ -59,7 +59,7 @@ def run_event_review():
                     "Describe if a hand is holding a book, then end with VERDICT: YES or NO.",
                     {'mime_type': 'image/jpeg', 'data': img_resp}
                 ])
-                print(f"Result: {response.text}")
+                print(f"Analysis: {response.text}")
             except Exception as e:
                 print(f"AI Error on claim {claim_id}: {e}")
 
