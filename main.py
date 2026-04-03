@@ -5,42 +5,40 @@ from web3 import Web3
 RPC_URL = os.getenv("BASE_RPC_URL")
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
 
-# This is the "Topic" for a ClaimCreated event (standard across most bounty contracts)
-CLAIM_TOPIC = "0x" + Web3.keccak(text="ClaimCreated(uint256,uint256,address,string)").hex()
+# The contract address from your original code
+CONTRACT_ADDR = "0x5555fa783936c260f77385b4e153b9725fef1719"
 
-def find_the_real_contract():
-    print("🔎 Searching for the correct Bounty contract address...")
+def discover_event_names():
+    print(f"🕵️ Analyzing contract {CONTRACT_ADDR} for hidden events...")
     try:
         current_block = w3.eth.block_number
-        # Search the last 500 blocks for ANY ClaimCreated event
+        # Scan last 2000 blocks for ANY activity on this specific address
         logs = w3.eth.get_logs({
-            "fromBlock": current_block - 500,
+            "fromBlock": current_block - 2000,
             "toBlock": current_block,
-            "topics": [CLAIM_TOPIC]
+            "address": w3.to_checksum_address(CONTRACT_ADDR)
         })
 
         if not logs:
-            print("ℹ️ No claim events found in the last 500 blocks. Trying a wider scan...")
-            logs = w3.eth.get_logs({
-                "fromBlock": current_block - 2000,
-                "toBlock": current_block,
-                "topics": [CLAIM_TOPIC]
-            })
+            print("❌ No activity found on this address in the last 2000 blocks.")
+            print("This usually means the contract address itself is wrong.")
+            return
 
-        found_addresses = set()
-        for log in logs:
-            found_addresses.add(log['address'])
+        print(f"✅ Found {len(logs)} interactions! Extracting event signatures...")
         
-        if found_addresses:
-            print(f"✅ FOUND {len(found_addresses)} POTENTIAL CONTRACT(S):")
-            for addr in found_addresses:
-                print(f"👉 {addr}")
-            print("\nCompare these to the '0x5555...' address in your code. One of these is the winner.")
-        else:
-            print("❌ No Claim events found at all. The contract might use a different event name.")
+        signatures = set()
+        for log in logs:
+            # The first topic [0] is the hashed name of the event
+            signatures.add(log['topics'][0].hex())
+        
+        print("\n--- Detected Event Signatures (Topics) ---")
+        for sig in signatures:
+            print(f"🔹 {sig}")
+            
+        print("\nNext step: I will decode these signatures to find the new 'Claim' event name.")
 
     except Exception as e:
-        print(f"❌ Error during hunt: {e}")
+        print(f"❌ Error during discovery: {e}")
 
 if __name__ == "__main__":
-    find_the_real_contract()
+    discover_event_names()
