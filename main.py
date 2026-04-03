@@ -1,34 +1,61 @@
 import os
+import requests
 from web3 import Web3
+import google.generativeai as genai
 
 # --- CONFIG ---
 RPC_URL = os.getenv("BASE_RPC_URL")
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
-CONTRACT_ADDR = "0x5555fa783936c260f77385b4e153b9725fef1719"
-CLAIM_TOPIC = "0x8e899c06f3271c67860e48d8347164d6a78655c6be9fcfaa86f714cc7d074c78"
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-def debug_all_claims():
-    print(f"🕵️ Extracting ALL claims from {CONTRACT_ADDR}...")
+CONTRACT_ADDR = "0x5555fa783936c260f77385b4e153b9725fef1719"
+# Verified signature from Run #68
+CLAIM_TOPIC = "0x8e899c06f3271c67860e48d8347164d6a78655c6be9fcfaa86f714cc7d074c78"
+# Updated to match verified IDs from Run #71
+TARGET_IDS = [705, 706] 
+
+def run_automated_review():
+    print(f"🤖 Monitoring verified IDs {TARGET_IDS} on contract {CONTRACT_ADDR[:10]}...")
+    
     try:
         current_block = w3.eth.block_number
         logs = w3.eth.get_logs({
-            "fromBlock": current_block - 2000,
+            "fromBlock": current_block - 5000, 
             "toBlock": current_block,
             "address": w3.to_checksum_address(CONTRACT_ADDR),
             "topics": [CLAIM_TOPIC]
         })
 
         if not logs:
-            print("❌ No claims found at all. Check the contract address one more time.")
+            print("ℹ️ No claims found in this block range.")
             return
 
-        print(f"✅ FOUND {len(logs)} CLAIMS. Printing IDs and Data:")
-        for i, log in enumerate(logs):
-            bounty_id = int(log['topics'][1].hex(), 16)
-            print(f"Claim {i+1}: Bounty ID {bounty_id} | Data: {log['data'].hex()[:50]}...")
+        model = genai.GenerativeModel('gemini-1.5-flash')
+
+        for log in logs:
+            # Extract ID from Topic[1]
+            on_chain_id = int(log['topics'][1].hex(), 16)
+            
+            if on_chain_id in TARGET_IDS:
+                print(f"✅ Match Found: ID {on_chain_id}. Extracting image...")
+                
+                # Decoding the submission string from hex data
+                raw_data = log['data'].hex()
+                if "68747470" in raw_data: # Searches for 'http' in hex
+                    img_url = bytes.fromhex(raw_data[raw_data.find("68747470"):]).decode('utf-8', 'ignore').strip('\x00')
+                    
+                    print(f"🔍 AI Reviewing: {img_url}")
+                    img_data = requests.get(img_url).content
+                    
+                    response = model.generate_content([
+                        "Describe if a hand is holding a book, then end with VERDICT: YES or NO.",
+                        {'mime_type': 'image/jpeg', 'data': img_data}
+                    ])
+                    print(f"Result: {response.text}")
+                    print("-" * 30)
 
     except Exception as e:
         print(f"❌ Error: {e}")
 
 if __name__ == "__main__":
-    debug_all_claims()
+    run_automated_review()
