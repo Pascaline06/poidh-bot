@@ -8,35 +8,34 @@ RPC_URL = os.getenv("BASE_RPC_URL")
 API_KEY = os.getenv("GEMINI_API_KEY")
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
 
+# Verified contract address from Basescan
 CONTRACT_ADDR = "0x5555Fa783936C260f77385b4e153B9725fef1719"
 CLAIM_TOPIC = "0x8e899c06f3271c67860e48d8347164d6a78655c6be9fcfaa86f714cc7d074c78"
+
+# INCLUDES YOUR NEW BOUNTY ID 136
 TARGET_IDS = [136, 705, 706] 
 START_BLOCK = 44225000 
 
 def get_pure_image(img_url):
-    """Attempts to find the raw image bytes from multiple reliable sources."""
-    # Clean the CID from the URL
+    """Bypasses 'loading' pages to find the raw image data."""
     cid = img_url.split("/ipfs/")[-1] if "/ipfs/" in img_url else img_url
-    cid = cid.split("?")[0].strip() # Remove any extra parameters
+    cid = cid.split("?")[0].strip()
     
     gateways = [
-        f"https://gateway.pinata.cloud/ipfs/{cid}",
         f"https://{cid}.ipfs.nftstorage.link",
+        f"https://gateway.pinata.cloud/ipfs/{cid}",
         f"https://ipfs.io/ipfs/{cid}",
         f"https://cloudflare-ipfs.com/ipfs/{cid}"
     ]
     
     for url in gateways:
         try:
-            print(f"[*] Trying gateway: {url[:40]}...")
             res = requests.get(url, timeout=12, headers={"User-Agent": "Mozilla/5.0"})
-            
-            # Check if it's a real image and not a tiny 'not found' pixel or HTML page
             content_type = res.headers.get('Content-Type', '').lower()
+            # Ensure it's an actual image and not an HTML error page
             if res.status_code == 200 and "image" in content_type and len(res.content) > 1000:
-                print(f"[+] Success! Downloaded {len(res.content)} bytes.")
                 return res.content
-        except Exception as e:
+        except:
             continue
     return None
 
@@ -45,7 +44,7 @@ def analyze_with_gemini(img_url):
     
     img_data = get_pure_image(img_url)
     if not img_data:
-        return {"error": "All IPFS gateways failed. The file might still be propagating or restricted."}
+        return {"error": "Could not find a raw image file at any gateway."}
 
     try:
         img_b64 = base64.b64encode(img_data).decode('utf-8')
@@ -65,7 +64,7 @@ def analyze_with_gemini(img_url):
 def run_automated_review():
     try:
         current_block = w3.eth.block_number
-        print(f"Scanning from {START_BLOCK} to {current_block}...")
+        print(f"Scanning from {START_BLOCK} to {current_block} for IDs {TARGET_IDS}...")
         
         logs = w3.eth.get_logs({
             "fromBlock": START_BLOCK,
@@ -81,7 +80,7 @@ def run_automated_review():
                 if "68747470" in raw_data: 
                     start_index = raw_data.find("68747470")
                     img_url = bytes.fromhex(raw_data[start_index:]).decode('utf-8', 'ignore').strip('\x00')
-                    print(f"\n[!] MATCH: ID {on_chain_id}")
+                    print(f"\n[!] VALIDATING ID {on_chain_id}...")
                     
                     result = analyze_with_gemini(img_url)
                     if 'candidates' in result:
