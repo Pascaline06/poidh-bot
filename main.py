@@ -26,25 +26,30 @@ CONTRACT = w3.eth.contract(address=w3.to_checksum_address(CONTRACT_ADDR), abi=EV
 TARGET_BOUNTY = 136
 
 def run_event_review():
-    print(f"🤖 Searching Bounty #{TARGET_BOUNTY}...")
+    print(f"🤖 Searching Bounty #{TARGET_BOUNTY} in historical window...")
     
     try:
         current_block = w3.eth.block_number
-        # Using a very small window of 1,000 blocks (~33 mins) to stay under RPC limits
-        search_start = current_block - 1000
         
-        print(f"🔎 Scanning blocks {search_start} to {current_block}...")
+        # We shift the window back. 
+        # search_end = 2 hours ago
+        # search_start = 4 hours ago
+        search_end = current_block - 3600 
+        search_start = current_block - 7500
+        
+        print(f"🔎 Scanning historical blocks {search_start} to {search_end}...")
         
         logs = CONTRACT.events.ClaimCreated().get_logs(
             from_block=search_start,
+            to_block=search_end,
             argument_filters={'bountyId': TARGET_BOUNTY}
         )
 
         if not logs:
-            print(f"ℹ️ No claims found in the last 30 mins. If the claims are older, we'll need to increase the range slightly next run.")
+            print(f"ℹ️ Still no claims in this window. Trying one more shift might be needed.")
             return
 
-        print(f"✅ Found {len(logs)} submissions! Starting AI analysis...")
+        print(f"✅ FOUND {len(logs)} SUBMISSIONS! AI is starting review...")
         model = genai.GenerativeModel('gemini-1.5-flash')
 
         for log in logs:
