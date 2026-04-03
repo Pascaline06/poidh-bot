@@ -9,13 +9,11 @@ w3 = Web3(Web3.HTTPProvider(RPC_URL))
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 CONTRACT_ADDR = "0x5555fa783936c260f77385b4e153b9725fef1719"
-# Verified signature from Run #68
 CLAIM_TOPIC = "0x8e899c06f3271c67860e48d8347164d6a78655c6be9fcfaa86f714cc7d074c78"
-# Updated to match verified IDs from Run #71
 TARGET_IDS = [705, 706] 
 
 def run_automated_review():
-    print(f"🤖 Monitoring verified IDs {TARGET_IDS} on contract {CONTRACT_ADDR[:10]}...")
+    print(f"🤖 Monitoring verified IDs {TARGET_IDS}...")
     
     try:
         current_block = w3.eth.block_number
@@ -30,23 +28,23 @@ def run_automated_review():
             print("ℹ️ No claims found in this block range.")
             return
 
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # Using the standard vision model to avoid 404 errors
+        model = genai.GenerativeModel('gemini-1.0-pro-vision')
 
         for log in logs:
-            # Extract ID from Topic[1]
             on_chain_id = int(log['topics'][1].hex(), 16)
             
             if on_chain_id in TARGET_IDS:
                 print(f"✅ Match Found: ID {on_chain_id}. Extracting image...")
                 
-                # Decoding the submission string from hex data
                 raw_data = log['data'].hex()
-                if "68747470" in raw_data: # Searches for 'http' in hex
+                if "68747470" in raw_data: 
                     img_url = bytes.fromhex(raw_data[raw_data.find("68747470"):]).decode('utf-8', 'ignore').strip('\x00')
                     
                     print(f"🔍 AI Reviewing: {img_url}")
                     img_data = requests.get(img_url).content
                     
+                    # Image analysis call
                     response = model.generate_content([
                         "Describe if a hand is holding a book, then end with VERDICT: YES or NO.",
                         {'mime_type': 'image/jpeg', 'data': img_data}
