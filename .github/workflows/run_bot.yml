@@ -21,9 +21,8 @@ jobs:
       - name: Start the Bot
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          PINATA_JWT: ${{ secrets.PINATA_JWT }}
-          PINATA_GATEWAY: ${{ secrets.PINATA_GATEWAY }}
-          APP_FID: ${{ secrets.APP_FID }}
-          FARCASTER_DEVELOPER_MNEMONIC: ${{ secrets.FARCASTER_DEVELOPER_MNEMONIC }}
-          NEYNAR_API_KEY: ${{ secrets.NEYNAR_API_KEY }} # Added this!
-        run: python -u main.py # Added -u for real-time logs
+          BASE_RPC_URL: ${{ secrets.BASE_RPC_URL }}
+          BOT_ADDRESS: ${{ secrets.BOT_ADDRESS }}
+          BOT_PRIVATE_KEY: ${{ secrets.BOT_PRIVATE_KEY }}
+          NEYNAR_API_KEY: ${{ secrets.NEYNAR_API_KEY }}
+        run: python main.py
