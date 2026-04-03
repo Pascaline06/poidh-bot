@@ -13,13 +13,13 @@ CLAIM_TOPIC = "0x8e899c06f3271c67860e48d8347164d6a78655c6be9fcfaa86f714cc7d074c7
 TARGET_IDS = [705, 706]
 
 def analyze_with_gemini(img_url):
-    # Using the STABLE v1 endpoint instead of v1beta to avoid the 404 error
-    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={API_KEY}"
+    # Updated to Gemini 3 Flash Preview as seen in your AI Studio UI
+    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-3-flash-preview:generateContent?key={API_KEY}"
     
     try:
         # Download the image
         img_response = requests.get(img_url, timeout=10)
-        # Encode to clean Base64 (Standard format for Google API)
+        # Standard Base64 encoding to prevent "Invalid Value" errors
         img_b64 = base64.b64encode(img_response.content).decode('utf-8')
         
         payload = {
@@ -41,7 +41,7 @@ def analyze_with_gemini(img_url):
 def run_automated_review():
     try:
         current_block = w3.eth.block_number
-        print(f"Scanning from block {current_block - 10000} to {current_block}...")
+        print(f"Scanning for IDs {TARGET_IDS} near block {current_block}...")
         
         logs = w3.eth.get_logs({
             "fromBlock": current_block - 10000,
@@ -55,16 +55,16 @@ def run_automated_review():
                 raw_data = log['data'].hex()
                 if "68747470" in raw_data:
                     img_url = bytes.fromhex(raw_data[raw_data.find("68747470"):]).decode('utf-8', 'ignore').strip('\x00')
-                    print(f"\n--- Reviewing ID {on_chain_id} ---")
+                    print(f"\n--- Found ID {on_chain_id} ---")
+                    print(f"Image: {img_url}")
                     
                     result = analyze_with_gemini(img_url)
                     
-                    # Look for the answer in the response
                     if 'candidates' in result:
                         answer = result['candidates'][0]['content']['parts'][0]['text']
                         print(f"AI VERDICT: {answer.strip()}")
                     else:
-                        print(f"AI Error: {result}")
+                        print(f"API Error/Response: {result}")
 
     except Exception as e:
         print(f"System Error: {e}")
