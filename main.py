@@ -10,24 +10,25 @@ w3 = Web3(Web3.HTTPProvider(RPC_URL))
 
 CONTRACT_ADDR = "0x5555Fa783936C260f77385b4e153B9725fef1719"
 CLAIM_TOPIC = "0x8e899c06f3271c67860e48d8347164d6a78655c6be9fcfaa86f714cc7d074c78"
-# ADDED 136 from your Basescan screenshot
 TARGET_IDS = [136, 705, 706] 
 START_BLOCK = 44225000 
 
-def get_image_bytes(img_url):
-    """Tries multiple gateways to bypass blocks."""
+def get_pure_image(img_url):
+    """Bypasses 'loading' pages to find the raw image data."""
     cid = img_url.split("/ipfs/")[-1] if "/ipfs/" in img_url else img_url
+    # prioritizing gateways that often serve raw data directly
     gateways = [
+        f"https://{cid}.ipfs.nftstorage.link",
         f"https://ipfs.io/ipfs/{cid}",
-        f"https://gateway.pinata.cloud/ipfs/{cid}",
         f"https://cloudflare-ipfs.com/ipfs/{cid}"
     ]
     
     for url in gateways:
         try:
             res = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
-            # Ensure we got an actual image, not an HTML error page
-            if res.status_code == 200 and b'HTML' not in res.content[:100].upper():
+            # CRITICAL: Verify this is actually an image (JPEG, PNG, etc)
+            content_type = res.headers.get('Content-Type', '')
+            if res.status_code == 200 and "image" in content_type:
                 return res.content
         except:
             continue
@@ -36,12 +37,12 @@ def get_image_bytes(img_url):
 def analyze_with_gemini(img_url):
     api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key={API_KEY}"
     
-    img_content = get_image_bytes(img_url)
-    if not img_content:
-        return {"error": "All IPFS gateways failed to provide image data."}
+    img_data = get_pure_image(img_url)
+    if not img_data:
+        return {"error": "Could not find a raw image file at any gateway."}
 
     try:
-        img_b64 = base64.b64encode(img_content).decode('utf-8')
+        img_b64 = base64.b64encode(img_data).decode('utf-8')
         payload = {
             "contents": [{
                 "parts": [
@@ -74,7 +75,7 @@ def run_automated_review():
                 if "68747470" in raw_data: 
                     start_index = raw_data.find("68747470")
                     img_url = bytes.fromhex(raw_data[start_index:]).decode('utf-8', 'ignore').strip('\x00')
-                    print(f"\n[!] PROCESSING ID {on_chain_id}")
+                    print(f"\n[!] VALIDATING ID {on_chain_id}...")
                     
                     result = analyze_with_gemini(img_url)
                     if 'candidates' in result:
@@ -82,7 +83,6 @@ def run_automated_review():
                         print(f"[*] AI VERDICT: {answer.strip()}")
                     else:
                         print(f"[X] AI Failure: {result}")
-
     except Exception as e:
         print(f"[X] System Error: {e}")
 
