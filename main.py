@@ -9,41 +9,35 @@ API_KEY = os.getenv("GEMINI_API_KEY")
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
 
 CONTRACT_ADDR = "0x5555Fa783936C260f77385b4e153B9725fef1719"
-CLAIM_TOPIC = "0x8e899c06f3271c67860e48d8347164d6a78655c6be9fcfaa86f714cc7d074c78"
-
-# THE TARGET LIST
-TARGET_IDS = [136, 705, 706] 
-# Starting slightly earlier to catch the exact creation block
-START_BLOCK = 44229000 
+# Targeted specifically to your B01 bounty
+TARGET_IDS = [136] 
+# Start 100 blocks before your transaction (44229655)
+START_BLOCK = 44229555 
 
 def get_pure_image(img_url):
-    """Aggressive fetcher for POIDH IPFS files."""
+    """Aggressively hunts for the raw photo of the book."""
     cid = img_url.split("/ipfs/")[-1] if "/ipfs/" in img_url else img_url
     cid = cid.split("?")[0].strip()
     
     gateways = [
         f"https://poidh.xyz/api/ipfs/{cid}", 
         f"https://gateway.pinata.cloud/ipfs/{cid}",
-        f"https://ipfs.io/ipfs/{cid}",
-        f"https://cloudflare-ipfs.com/ipfs/{cid}"
+        f"https://ipfs.io/ipfs/{cid}"
     ]
     
     for url in gateways:
         try:
-            res = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
-            c_type = res.headers.get('Content-Type', '').lower()
-            if res.status_code == 200 and "image" in c_type:
+            res = requests.get(url, timeout=15)
+            # Only accept real images, not 'Loading' HTML pages
+            if res.status_code == 200 and "image" in res.headers.get('Content-Type', '').lower():
                 return res.content
         except:
             continue
     return None
 
-def analyze_with_gemini(img_url):
+def analyze_with_gemini(img_data):
+    """Sends the raw book photo to Gemini for judgment."""
     api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key={API_KEY}"
-    img_data = get_pure_image(img_url)
-    if not img_data:
-        return {"error": "Image file not found on any gateway."}
-
     try:
         img_b64 = base64.b64encode(img_data).decode('utf-8')
         payload = {
@@ -54,7 +48,7 @@ def analyze_with_gemini(img_url):
                 ]
             }]
         }
-        res = requests.post(api_url, json=payload, timeout=30)
+        res = requests.post(api_url, json=payload, timeout=20)
         return res.json()
     except Exception as e:
         return {"error": str(e)}
@@ -62,39 +56,46 @@ def analyze_with_gemini(img_url):
 def run_automated_review():
     try:
         current_block = w3.eth.block_number
-        # Extended the search window to be absolutely sure
-        print(f"Scanning blocks {START_BLOCK} to {current_block}...")
+        print(f"B01 Search: Scanning blocks {START_BLOCK} to {current_block}...")
         
+        # We search ALL contract events to ensure we don't miss the B01 creation
         logs = w3.eth.get_logs({
             "fromBlock": START_BLOCK,
             "toBlock": current_block,
-            "address": w3.to_checksum_address(CONTRACT_ADDR),
-            "topics": [CLAIM_TOPIC]
+            "address": w3.to_checksum_address(CONTRACT_ADDR)
         })
 
-        if not logs:
-            print("No bounty logs found in this range.")
+        print(f"Found {len(logs)} potential events. Filtering for B01 (ID 136)...")
 
         for log in logs:
-            # Extract ID from Topic 1 (indexed)
-            on_chain_id = int(log['topics'][1].hex(), 16)
-            
-            if on_chain_id in TARGET_IDS:
-                print(f"\n[!] MATCH FOUND: ID {on_chain_id}")
-                raw_data = log['data'].hex()
-                if "68747470" in raw_data: 
+            raw_data = log['data'].hex()
+            # Look for the URL inside the blockchain log
+            if "68747470" in raw_data: 
+                try:
+                    # Extract ID (Topic 1 is usually the Bounty ID)
+                    found_id = int(log['topics'][1].hex(), 16)
+                except:
+                    continue
+
+                if found_id in TARGET_IDS:
+                    print(f"\n[!] B01 BOUNTY DETECTED (ID {found_id})")
                     start_idx = raw_data.find("68747470")
                     img_url = bytes.fromhex(raw_data[start_idx:]).decode('utf-8', 'ignore').strip('\x00')
                     
-                    result = analyze_with_gemini(img_url)
-                    if 'candidates' in result:
-                        verdict = result['candidates'][0]['content']['parts'][0]['text']
-                        print(f"[*] AI VERDICT FOR ID {on_chain_id}: {verdict.strip().upper()}")
+                    img_bytes = get_pure_image(img_url)
+                    if img_bytes:
+                        result = analyze_with_gemini(img_bytes)
+                        if 'candidates' in result:
+                            ans = result['candidates'][0]['content']['parts'][0]['text']
+                            print(f"[*] AI VERDICT FOR B01: {ans.strip().upper()}")
+                        else:
+                            print(f"[X] AI failed to judge: {result}")
                     else:
-                        print(f"[X] AI Failure: {result}")
-        print("\nReview Finished.")
+                        print("[X] Could not download the book photo.")
+        
+        print("\nScan Finished.")
     except Exception as e:
-        print(f"[X] Critical System Error: {e}")
+        print(f"[X] System Error: {e}")
 
 if __name__ == "__main__":
     run_automated_review()
