@@ -10,15 +10,21 @@ w3 = Web3(Web3.HTTPProvider(RPC_URL))
 
 CONTRACT_ADDR = "0x5555Fa783936C260f77385b4e153B9725fef1719"
 TARGET_ID = 136
-# Hex for 136 is 88; we search for it in the log data
-TARGET_HEX = "88" 
+# The exact 32-byte hex for 136 (88)
+TARGET_HEX_TOPIC = "0x0000000000000000000000000000000000000000000000000000000000000088"
 START_BLOCK = 44229555 
 
-def get_pure_image(img_url):
-    """Downloads the actual photo from IPFS gateways."""
-    cid = img_url.split("/ipfs/")[-1] if "/ipfs/" in img_url else img_url
-    cid = cid.split("?")[0].strip()
-    gateways = [f"https://poidh.xyz/api/ipfs/{cid}", f"https://gateway.pinata.cloud/ipfs/{cid}", f"https://ipfs.io/ipfs/{cid}"]
+def get_pure_image(cid_or_url):
+    """Turns raw CID or URL into an image."""
+    cid = cid_or_url.split("/ipfs/")[-1] if "/ipfs/" in cid_or_url else cid_or_url
+    cid = cid.replace("ipfs://", "").split("?")[0].strip()
+    
+    # We try gateways with the raw CID directly
+    gateways = [
+        f"https://poidh.xyz/api/ipfs/{cid}", 
+        f"https://gateway.pinata.cloud/ipfs/{cid}", 
+        f"https://ipfs.io/ipfs/{cid}"
+    ]
     for url in gateways:
         try:
             res = requests.get(url, timeout=10)
@@ -28,7 +34,6 @@ def get_pure_image(img_url):
     return None
 
 def analyze_with_gemini(img_data):
-    """AI Verdict Logic."""
     api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key={API_KEY}"
     try:
         img_b64 = base64.b64encode(img_data).decode('utf-8')
@@ -40,36 +45,46 @@ def analyze_with_gemini(img_data):
 def run_automated_review():
     try:
         current_block = w3.eth.block_number
-        # Using the broad scan range that worked in Run #102
-        print(f"Aggressive Scan: Blocks {START_BLOCK} to {current_block}...")
+        print(f"B01 Final Sweep: Blocks {START_BLOCK} to {current_block}...")
         
         logs = w3.eth.get_logs({
-            "fromBlock": START_BLOCK,
-            "toBlock": current_block,
+            "from_block": START_BLOCK,
+            "to_block": current_block,
             "address": w3.to_checksum_address(CONTRACT_ADDR)
         })
 
-        print(f"Found {len(logs)} total events. Searching for Bounty 136 claims...")
-
         processed = 0
         for log in logs:
-            raw_data = log['data'].hex()
-            topics_combined = "".join([t.hex() for t in log['topics']])
+            # Look for ID 136 in the indexed topics (where IDs usually live)
+            is_bounty_136 = any(TARGET_HEX_TOPIC.lower() == t.hex().lower() for t in log['topics'])
             
-            # Check if this log mentions ID 136 (88) and has an image link (http)
-            if (TARGET_HEX in topics_combined or TARGET_HEX in raw_data) and "68747470" in raw_data:
+            if is_bounty_136:
                 processed += 1
-                start_idx = raw_data.find("68747470")
-                img_url = bytes.fromhex(raw_data[start_idx:]).decode('utf-8', 'ignore').strip('\x00')
+                raw_data = log['data'].hex()
                 
-                print(f"\n[!] ANALYZING B01 CLAIM #{processed}")
-                img_bytes = get_pure_image(img_url)
-                if img_bytes:
-                    result = analyze_with_gemini(img_bytes)
-                    ans = result.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', 'NO VERDICT')
-                    print(f"[*] AI VERDICT: {ans.strip().upper()}")
-                else:
-                    print("[X] Could not download image.")
+                # Attempt to extract CID from the raw data
+                # If there's no 'http', we assume the whole data string might be a CID
+                try:
+                    if "68747470" in raw_data:
+                        start_idx = raw_data.find("68747470")
+                        cid_or_url = bytes.fromhex(raw_data[start_idx:]).decode('utf-8', 'ignore').strip('\x00')
+                    else:
+                        # Fallback: decode the whole data block to find a CID string
+                        cid_or_url = bytes.fromhex(raw_data).decode('utf-8', 'ignore').strip('\x00').strip()
+                    
+                    if not cid_or_url: continue
+
+                    print(f"\n[!] ANALYZING B01 CLAIM #{processed}")
+                    img_bytes = get_pure_image(cid_or_url)
+                    
+                    if img_bytes:
+                        result = analyze_with_gemini(img_bytes)
+                        ans = result.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', 'NO VERDICT')
+                        print(f"[*] AI VERDICT: {ans.strip().upper()}")
+                    else:
+                        print(f"[X] Could not resolve image for: {cid_or_url[:20]}...")
+                except:
+                    continue
 
         print(f"\nScan complete. Processed {processed} claims.")
     except Exception as e: print(f"[X] Error: {e}")
