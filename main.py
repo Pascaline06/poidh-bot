@@ -13,24 +13,27 @@ CLAIM_TOPIC = "0x8e899c06f3271c67860e48d8347164d6a78655c6be9fcfaa86f714cc7d074c7
 TARGET_IDS = [705, 706]
 
 def analyze_with_gemini(img_url):
-    """Sends image to Gemini 3.1 Flash Lite via the v1beta REST endpoint."""
-    # Updated to v1beta and the specific 3.1 Lite model seen in your AI Studio
+    """Sends raw image bytes to Gemini 3.1 Flash Lite."""
+    # Using v1beta and Gemini 3.1 Flash Lite Preview as confirmed in AI Studio
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key={API_KEY}"
     
-    # User-Agent header to prevent the IPFS gateway from blocking the image download
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
     }
-    
+
     try:
-        # 1. Download image with browser-like headers
-        img_response = requests.get(img_url, headers=headers, timeout=15)
+        # 1. Download image with streaming to ensure we get the full raw content
+        img_response = requests.get(img_url, headers=headers, timeout=15, stream=True)
         img_response.raise_for_status()
         
-        # 2. Encode to Base64
-        img_b64 = base64.b64encode(img_response.content).decode('utf-8')
+        # 2. Convert raw content to Base64
+        img_data = img_response.content
+        if len(img_data) < 100:
+            return {"error": "Image file too small or invalid (might be a blocked gateway page)."}
+            
+        img_b64 = base64.b64encode(img_data).decode('utf-8')
         
-        # 3. Construct Payload
+        # 3. Payload
         payload = {
             "contents": [{
                 "parts": [
@@ -59,37 +62,29 @@ def run_automated_review():
         current_block = w3.eth.block_number
         print(f"Checking IDs {TARGET_IDS} near block {current_block}...")
         
-        # Search block range for claim events
         logs = w3.eth.get_logs({
-            "fromBlock": current_block - 10000,
+            "fromBlock": current_block - 5000, # Narrower range for speed
             "address": w3.to_checksum_address(CONTRACT_ADDR),
             "topics": [CLAIM_TOPIC]
         })
 
-        if not logs:
-            print("No matching claim events found in this block range.")
-            return
-
         for log in logs:
             on_chain_id = int(log['topics'][1].hex(), 16)
-            
             if on_chain_id in TARGET_IDS:
                 raw_data = log['data'].hex()
-                if "68747470" in raw_data: # "http" in hex
+                if "68747470" in raw_data: 
                     start_index = raw_data.find("68747470")
                     img_url = bytes.fromhex(raw_data[start_index:]).decode('utf-8', 'ignore').strip('\x00')
                     
-                    print(f"\n[!] Found ID {on_chain_id}")
-                    print(f"[!] Image URL: {img_url}")
+                    print(f"\n[!] ID Found: {on_chain_id}")
+                    print(f"[!] URL: {img_url}")
                     
-                    # Run AI Analysis
                     result = analyze_with_gemini(img_url)
                     
                     if 'candidates' in result:
                         answer = result['candidates'][0]['content']['parts'][0]['text']
                         print(f"[*] AI VERDICT: {answer.strip()}")
                     else:
-                        # Log full failure for debugging
                         print(f"[X] AI Failure: {result}")
 
     except Exception as e:
