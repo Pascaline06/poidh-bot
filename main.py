@@ -26,18 +26,18 @@ CONTRACT = w3.eth.contract(address=w3.to_checksum_address(CONTRACT_ADDR), abi=EV
 TARGET_BOUNTY = 136
 
 def run_event_review():
-    print(f"🤖 Searching Bounty #{TARGET_BOUNTY} in historical window...")
+    print(f"🤖 Searching Bounty #{TARGET_BOUNTY} in DEEP historical window...")
     
     try:
         current_block = w3.eth.block_number
         
-        # We shift the window back. 
-        # search_end = 2 hours ago
-        # search_start = 4 hours ago
-        search_end = current_block - 3600 
-        search_start = current_block - 7500
+        # Shifting further back:
+        # search_end = 4 hours ago (7,200 blocks)
+        # search_start = 8 hours ago (14,400 blocks)
+        search_end = current_block - 7200
+        search_start = current_block - 14400
         
-        print(f"🔎 Scanning historical blocks {search_start} to {search_end}...")
+        print(f"🔎 Scanning blocks {search_start} to {search_end}...")
         
         logs = CONTRACT.events.ClaimCreated().get_logs(
             from_block=search_start,
@@ -46,10 +46,10 @@ def run_event_review():
         )
 
         if not logs:
-            print(f"ℹ️ Still no claims in this window. Trying one more shift might be needed.")
+            print(f"ℹ️ Still no claims found. They might be even older or under a different Bounty ID.")
             return
 
-        print(f"✅ FOUND {len(logs)} SUBMISSIONS! AI is starting review...")
+        print(f"✅ FOUND {len(logs)} SUBMISSIONS! Analyzing now...")
         model = genai.GenerativeModel('gemini-1.5-flash')
 
         for log in logs:
@@ -57,15 +57,12 @@ def run_event_review():
             img_url = log.args.submission
             print(f"\n--- 🔍 AI REVIEW: CLAIM #{claim_id} ---")
             
-            try:
-                img_resp = requests.get(img_url).content
-                response = model.generate_content([
-                    "Describe if a hand is holding a book, then end with VERDICT: YES or NO.",
-                    {'mime_type': 'image/jpeg', 'data': img_resp}
-                ])
-                print(f"Analysis: {response.text}")
-            except Exception as e:
-                print(f"AI Error on claim {claim_id}: {e}")
+            img_resp = requests.get(img_url).content
+            response = model.generate_content([
+                "Describe if a hand is holding a book, then end with VERDICT: YES or NO.",
+                {'mime_type': 'image/jpeg', 'data': img_resp}
+            ])
+            print(f"Analysis: {response.text}")
 
     except Exception as e:
         print(f"❌ Error: {e}")
