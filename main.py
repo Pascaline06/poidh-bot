@@ -26,14 +26,14 @@ CONTRACT = w3.eth.contract(address=w3.to_checksum_address(CONTRACT_ADDR), abi=EV
 TARGET_BOUNTY = 136
 
 def run_event_review():
-    print(f"🤖 Searching for Bounty #{TARGET_BOUNTY}...")
+    print(f"🤖 Searching Bounty #{TARGET_BOUNTY} on BlastAPI...")
     
     try:
         current_block = w3.eth.block_number
-        # 7,500 blocks is roughly 4 hours and 10 minutes on Base
-        search_start = current_block - 7500
+        # BlastAPI allows a maximum of 2,000 blocks for event searches
+        search_start = current_block - 1900
         
-        print(f"🔎 Scanning from block {search_start} to {current_block}...")
+        print(f"🔎 Scanning blocks {search_start} to {current_block} (~1 hour)...")
         
         logs = CONTRACT.events.ClaimCreated().get_logs(
             from_block=search_start,
@@ -41,8 +41,7 @@ def run_event_review():
         )
 
         if not logs:
-            print(f"ℹ️ No claims found for #{TARGET_BOUNTY} in the last 4 hours.")
-            print("If you see them on the site, the RPC might be lagging. Try again in a few mins.")
+            print(f"ℹ️ No claims found in the last hour. If they were earlier, we will need to search in 'chunks'.")
             return
 
         print(f"✅ Found {len(logs)} submissions! Starting AI analysis...")
