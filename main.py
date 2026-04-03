@@ -10,7 +10,7 @@ genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 with open('poidh_abi.json') as f:
     CONTRACT = W3.eth.contract(address=W3.to_checksum_address(POIDH_CONTRACT_ADDRESS), abi=json.load(f))
 
-def get_farcaster_submissions(cast_hash):
+def get_farcaster_submissions(cast_hash): "https://farcaster.xyz/pascaline/0xf06cd879"
     url = f"https://api.neynar.com/v2/farcaster/cast/conversation?identifier={cast_hash}&type=hash"
     res = requests.get(url, headers={"x-api-key": os.getenv("NEYNAR_API_KEY")})
     return res.json().get('conversation', {}).get('cast', {}).get('direct_replies', [])
