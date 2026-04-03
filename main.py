@@ -23,49 +23,50 @@ EVENT_ABI = [{
 }]
 
 CONTRACT = w3.eth.contract(address=w3.to_checksum_address(CONTRACT_ADDR), abi=EVENT_ABI)
-BOUNTY_ID = 136
+TARGET_BOUNTY = 136
 
 def run_event_review():
-    print(f"🤖 Searching for Bounty #{BOUNTY_ID} receipts...")
+    print(f"🤖 Searching specifically for Bounty #{TARGET_BOUNTY}...")
     
     try:
         current_block = w3.eth.block_number
-        # We increase this to 100,000 blocks (~2 days of history)
-        search_start = current_block - 100000 
+        # We can look back even further now because we are filtering by ID
+        # Looking back 20,000 blocks (~11 hours)
         
-        print(f"🔎 Scanning from block {search_start} to {current_block}...")
-        
+        # This 'argument_filters' tells the node to ONLY send us Bounty 136
         logs = CONTRACT.events.ClaimCreated().get_logs(
-            from_block=search_start
+            from_block=current_block - 20000,
+            argument_filters={'bountyId': TARGET_BOUNTY}
         )
 
-        bounty_logs = [log for log in logs if log.args.bountyId == BOUNTY_ID]
-
-        if not bounty_logs:
-            print("ℹ️ Still no receipts found. Increasing search range might be needed.")
+        if not logs:
+            print(f"ℹ️ No claims found for Bounty #{TARGET_BOUNTY} in the last 11 hours.")
             return
 
-        print(f"✅ Success! Found {len(bounty_logs)} submissions! AI is starting review...")
+        print(f"✅ Found {len(logs)} submissions! Starting AI analysis...")
         model = genai.GenerativeModel('gemini-1.5-flash')
 
-        for log in bounty_logs:
+        for log in logs:
             claim_id = log.args.claimId
             img_url = log.args.submission
             
-            print(f"\n--- 🔍 AI REVIEW: CLAIM #{claim_id} ---")
+            print(f"\n--- 🎯 MATCH FOUND: CLAIM #{claim_id} ---")
+            print(f"Image Link: {img_url}")
             
             try:
                 img_resp = requests.get(img_url).content
                 response = model.generate_content([
-                    "Is there a human hand holding a physical book? Explain in 10 words, then end with VERDICT: YES or VERDICT: NO.",
+                    "Describe if a hand is holding a book, then end with VERDICT: YES or NO.",
                     {'mime_type': 'image/jpeg', 'data': img_resp}
                 ])
-                print(f"Verdict: {response.text}")
+                print(f"Result: {response.text}")
             except Exception as e:
-                print(f"Error analyzing image for claim {claim_id}: {e}")
+                print(f"AI Error on claim {claim_id}: {e}")
 
     except Exception as e:
-        print(f"❌ Error during search: {e}")
+        print(f"❌ Error: {e}")
+        if "413" in str(e):
+            print("💡 Node still overwhelmed. Try reducing the block range to 5000.")
 
 if __name__ == "__main__":
     run_event_review()
