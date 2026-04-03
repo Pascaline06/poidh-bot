@@ -14,10 +14,13 @@ TARGET_IDS = [136, 705, 706]
 START_BLOCK = 44225000 
 
 def get_pure_image(img_url):
-    """Bypasses 'loading' pages to find the raw image data."""
+    """Attempts to find the raw image bytes from multiple reliable sources."""
+    # Clean the CID from the URL
     cid = img_url.split("/ipfs/")[-1] if "/ipfs/" in img_url else img_url
-    # prioritizing gateways that often serve raw data directly
+    cid = cid.split("?")[0].strip() # Remove any extra parameters
+    
     gateways = [
+        f"https://gateway.pinata.cloud/ipfs/{cid}",
         f"https://{cid}.ipfs.nftstorage.link",
         f"https://ipfs.io/ipfs/{cid}",
         f"https://cloudflare-ipfs.com/ipfs/{cid}"
@@ -25,12 +28,15 @@ def get_pure_image(img_url):
     
     for url in gateways:
         try:
-            res = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
-            # CRITICAL: Verify this is actually an image (JPEG, PNG, etc)
-            content_type = res.headers.get('Content-Type', '')
-            if res.status_code == 200 and "image" in content_type:
+            print(f"[*] Trying gateway: {url[:40]}...")
+            res = requests.get(url, timeout=12, headers={"User-Agent": "Mozilla/5.0"})
+            
+            # Check if it's a real image and not a tiny 'not found' pixel or HTML page
+            content_type = res.headers.get('Content-Type', '').lower()
+            if res.status_code == 200 and "image" in content_type and len(res.content) > 1000:
+                print(f"[+] Success! Downloaded {len(res.content)} bytes.")
                 return res.content
-        except:
+        except Exception as e:
             continue
     return None
 
@@ -39,7 +45,7 @@ def analyze_with_gemini(img_url):
     
     img_data = get_pure_image(img_url)
     if not img_data:
-        return {"error": "Could not find a raw image file at any gateway."}
+        return {"error": "All IPFS gateways failed. The file might still be propagating or restricted."}
 
     try:
         img_b64 = base64.b64encode(img_data).decode('utf-8')
@@ -59,7 +65,7 @@ def analyze_with_gemini(img_url):
 def run_automated_review():
     try:
         current_block = w3.eth.block_number
-        print(f"Scanning from {START_BLOCK} for IDs {TARGET_IDS}...")
+        print(f"Scanning from {START_BLOCK} to {current_block}...")
         
         logs = w3.eth.get_logs({
             "fromBlock": START_BLOCK,
@@ -75,12 +81,12 @@ def run_automated_review():
                 if "68747470" in raw_data: 
                     start_index = raw_data.find("68747470")
                     img_url = bytes.fromhex(raw_data[start_index:]).decode('utf-8', 'ignore').strip('\x00')
-                    print(f"\n[!] VALIDATING ID {on_chain_id}...")
+                    print(f"\n[!] MATCH: ID {on_chain_id}")
                     
                     result = analyze_with_gemini(img_url)
                     if 'candidates' in result:
                         answer = result['candidates'][0]['content']['parts'][0]['text']
-                        print(f"[*] AI VERDICT: {answer.strip()}")
+                        print(f"[*] AI VERDICT: {answer.strip().upper()}")
                     else:
                         print(f"[X] AI Failure: {result}")
     except Exception as e:
