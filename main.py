@@ -1,6 +1,7 @@
 import os
 import requests
 from web3 import Web3
+from web3.exceptions import ContractLogicError
 import google.generativeai as genai
 
 # --- CONFIG ---
@@ -18,25 +19,37 @@ def ai_review(image_url):
         img_data = requests.get(image_url).content
         model = genai.GenerativeModel('gemini-1.5-flash')
         response = model.generate_content([
-            "Look at this image. Is a human hand clearly holding a physical book? Explain why in one sentence, then end with 'VERDICT: YES' or 'VERDICT: NO'.",
+            "Is there a human hand holding a physical book? Explain briefly, then end with 'VERDICT: YES' or 'VERDICT: NO'.",
             {'mime_type': 'image/jpeg', 'data': img_data}
         ])
         return response.text
     except Exception as e:
-        return f"Error reviewing image: {e}"
+        return f"AI Error: {e}"
 
 def run_review():
-    print(f"🤖 AI Agent is reviewing claims for Bounty {BOUNTY_ID}...")
-    claims = CONTRACT.functions.getClaims(BOUNTY_ID).call()
-    
-    for c in claims:
-        claim_id, claimer, img_url, is_accepted = c
-        if not is_accepted:
-            print(f"\n--- 🔍 REVIEWING CLAIM #{claim_id} ---")
-            analysis = ai_review(img_url)
-            print(analysis)
-        else:
-            print(f"Claim #{claim_id} already paid.")
+    print(f"🤖 AI Agent is attempting to fetch claims for Bounty {BOUNTY_ID}...")
+    try:
+        claims = CONTRACT.functions.getClaims(BOUNTY_ID).call()
+        
+        if not claims:
+            print("ℹ️ The contract returned 0 claims. Try refreshing the POIDH page.")
+            return
+
+        for c in claims:
+            claim_id, claimer, img_url, is_accepted = c
+            if not is_accepted:
+                print(f"\n--- 🔍 REVIEWING CLAIM #{claim_id} ---")
+                print(f"URL: {img_url}")
+                analysis = ai_review(img_url)
+                print(analysis)
+            else:
+                print(f"Claim #{claim_id} already processed.")
+                
+    except ContractLogicError:
+        print("⚠️ RPC Error: The blockchain 'reverted'. This usually means the network is lagging.")
+        print("Try changing your BASE_RPC_URL secret to: https://mainnet.base.org")
+    except Exception as e:
+        print(f"❌ Error: {e}")
 
 if __name__ == "__main__":
     run_review()
