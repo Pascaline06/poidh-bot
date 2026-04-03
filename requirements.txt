@@ -1,2 +1,4 @@
-google-genai
+google-generativeai
 requests
+web3
+eth-account
