@@ -2,7 +2,7 @@ import time
 import json
 import os
 from web3 import Web3
-import google.generativeai as genai
+from google import genai  # Upgraded to the new 2026 SDK
 
 # =========================
 # CONFIG
@@ -12,13 +12,11 @@ POIDH_CA = "0x5555Fa783936C260f77385b4E153B9725feF1719"
 EVENT_SIG = "0x8e099c06f3271c67860e48d8347164d6a78655c6be9fcfaa86f714cc7d074c78"
 BOUNTY_ID = 1122
 
-CHUNK_SIZE = 100 
+CHUNK_SIZE = 1000 
 STATE_FILE = "state.json"
 
-# AI Setup
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-ai_model = genai.GenerativeModel('gemini-1.5-flash')
-
+# New AI Setup (Gemini 3 Flash)
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
 
 def load_last_block():
@@ -33,16 +31,20 @@ def save_last_block(block):
         json.dump({"last_block": block}, f)
 
 def analyze_claim(text_content):
-    """Uses Gemini to check if the submission sounds like a real book."""
+    """Uses Gemini 3 Flash to check if the submission sounds like a real book."""
     prompt = f"A user submitted this for a 'Physical Book' bounty: '{text_content}'. Is this a valid-sounding proof? Reply VALID or INVALID with a 1-sentence reason."
     try:
-        response = ai_model.generate_content(prompt)
+        # Using the updated 2026 model call
+        response = client.models.generate_content(
+            model="gemini-3-flash", 
+            contents=prompt
+        )
         return response.text.strip()
     except Exception as e:
         return f"AI Error: {e}"
 
 def run_bot():
-    print("🔌 Starting Bot & AI Evaluator...", flush=True)
+    print("🔌 Starting Bot & Gemini 3 Evaluator...", flush=True)
     if not w3.is_connected():
         print("❌ Connection failed.")
         return
@@ -50,12 +52,17 @@ def run_bot():
     last_block = load_last_block()
     current_chain_block = w3.eth.block_number
     
-    # Fast Catch-up: Scan 5,000 blocks per run
+    # Scan 5,000 blocks per run to catch those 6 claims from yesterday
     target_end_block = min(last_block + 5000, current_chain_block)
 
     print(f"✅ Connected! Scanning {last_block} → {target_end_block}", flush=True)
 
+    # Convert ID to 32-byte hex
     topic_id = "0x" + hex(BOUNTY_ID)[2:].zfill(64)
+    
+    # FIX: BountyID is Topic 1, not Topic 3!
+    filter_topics = [EVENT_SIG, topic_id, None, None]
+
     current_start = last_block
     total_matches = 0
 
@@ -64,27 +71,29 @@ def run_bot():
         
         try:
             logs = w3.eth.get_logs({
-                "fromBlock": current_start,
-                "toBlock": current_end,
+                "fromBlock": hex(current_start), # Using Hex to please Alchemy
+                "toBlock": hex(current_end),
                 "address": w3.to_checksum_address(POIDH_CA),
-                "topics": [EVENT_SIG, None, None, topic_id]
+                "topics": filter_topics
             })
 
             for log in logs:
                 tx_hash = log["transactionHash"].hex()
-                claimer = "0x" + log['topics'][2].hex()[-40:]
+                # The claimer is in Topic 3
+                claimer = "0x" + log['topics'][3].hex()[-40:]
                 
+                # Robust decoding of the description string
                 try:
-                    raw_data = log['data'].hex()
-                    clean_hex = raw_data[130:].split('0000')[0]
-                    desc = bytes.fromhex(clean_hex).decode('utf-8', errors='ignore').strip()
+                    data_hex = log['data'].hex()
+                    # Strings start after the 64-char offset and 64-char length
+                    desc_hex = data_hex[128:]
+                    desc = bytes.fromhex(desc_hex).decode('utf-8', errors='ignore').split('\x00')[0].strip()
                 except:
                     desc = "[No description found]"
 
                 print(f"\n✨ CLAIM DETECTED")
                 print(f"Submitter: {claimer}")
                 
-                # Gemini Evaluation
                 verdict = analyze_claim(desc)
                 print(f"Message: {desc}")
                 print(f"🤖 AI Verdict: {verdict}")
@@ -92,7 +101,7 @@ def run_bot():
                 total_matches += 1
 
         except Exception as e:
-            print(f"⚠️ Alchemy Error: {e}")
+            print(f"⚠️ Alchemy/RPC Error: {e}")
             time.sleep(1)
 
         current_start = current_end + 1
