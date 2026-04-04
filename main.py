@@ -11,30 +11,23 @@ w3 = Web3(Web3.HTTPProvider(RPC_URL))
 
 CONTRACT_ADDR = "0x5555Fa783936C260f77385b4e153B9725fef1719"
 TARGET_ID = 136
-# We are moving back 50k blocks to find this older bounty
-DEEP_START_BLOCK = 44180000 
+# The keccak-256 hash of 'ClaimCreated(uint256,uint256,address,string)'
+CLAIM_EVENT_TOPIC = "0x3939634e062635a16f2043685e13d1112d8a4e101966a87752495b2a0c4f8087"
+
+# We'll scan from 44,150,000 up to where we last scanned
+SCAN_START = 44150000
+SCAN_END = 44229555
+CHUNK_SIZE = 5000 # Smaller chunks to avoid "Payload Too Large"
 
 def get_pure_image(blob):
-    """Smarter image extractor with longer timeouts for slow gateways."""
     matches = re.findall(r'(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[a-zA-Z0-9]{55}|https?://[^\s<>"]+|ipfs://[^\s<>"]+)', blob)
     if not matches: return None, None
+    cid = matches[0].split("/ipfs/")[-1].replace("ipfs://", "").split("?")[0].strip()
     
-    path = matches[0]
-    cid = path.split("/ipfs/")[-1] if "/ipfs/" in path else path
-    cid = cid.replace("ipfs://", "").split("?")[0].strip()
-    
-    gateways = [
-        f"https://poidh.xyz/api/ipfs/{cid}", 
-        f"https://gateway.pinata.cloud/ipfs/{cid}", 
-        f"https://ipfs.io/ipfs/{cid}",
-        f"https://cloudflare-ipfs.com/ipfs/{cid}"
-    ]
-    for url in gateways:
+    for url in [f"https://poidh.xyz/api/ipfs/{cid}", f"https://gateway.pinata.cloud/ipfs/{cid}"]:
         try:
-            # Increased timeout to 20s to prevent 'Gateway Failed' errors
-            res = requests.get(url, timeout=20) 
-            if res.status_code == 200 and len(res.content) > 1000:
-                return res.content, path
+            res = requests.get(url, timeout=15)
+            if res.status_code == 200: return res.content, matches[0]
         except: continue
     return None, None
 
@@ -43,60 +36,48 @@ def analyze_with_gemini(img_data):
     try:
         img_b64 = base64.b64encode(img_data).decode('utf-8')
         payload = {"contents": [{"parts": [{"text": "Is a hand holding a book? YES or NO."}, {"inline_data": {"mime_type": "image/jpeg", "data": img_b64}}]}]}
-        res = requests.post(api_url, json=payload, timeout=30)
+        res = requests.post(api_url, json=payload, timeout=25)
         return res.json()
-    except Exception as e: return {"error": str(e)}
+    except: return {}
 
-def run_deep_discovery():
-    try:
-        current_block = w3.eth.block_number
-        print(f"Deep Scan: Blocks {DEEP_START_BLOCK} to {current_block}")
+def run_surgical_scan():
+    print(f"Targeting Bounty {TARGET_ID}. Scanning in {CHUNK_SIZE} block increments...")
+    
+    current = SCAN_START
+    while current < SCAN_END:
+        top = min(current + CHUNK_SIZE, SCAN_END)
+        print(f"Checking range: {current} to {top}...")
         
-        logs = w3.eth.get_logs({
-            "fromBlock": DEEP_START_BLOCK,
-            "toBlock": current_block,
-            "address": w3.to_checksum_address(CONTRACT_ADDR)
-        })
+        try:
+            logs = w3.eth.get_logs({
+                "fromBlock": current,
+                "toBlock": top,
+                "address": w3.to_checksum_address(CONTRACT_ADDR),
+                "topics": [CLAIM_EVENT_TOPIC]
+            })
 
-        print(f"Total events found: {len(logs)}. Searching for ID {TARGET_ID}...")
-        found_count = 0
+            for log in logs:
+                # The Bounty ID is usually in topics[1] for these events
+                try:
+                    bounty_id = int(log['topics'][1].hex(), 16)
+                    if bounty_id == TARGET_ID:
+                        print(f"\n[!] MATCH: Found Bounty {TARGET_ID} in block {log['blockNumber']}")
+                        raw_data = bytes.fromhex(log['data'].hex()).decode('utf-8', 'ignore')
+                        img_bytes, path = get_pure_image(raw_data)
+                        
+                        if img_bytes:
+                            print(f"[*] Judging image: {path[:30]}...")
+                            res = analyze_with_gemini(img_bytes)
+                            verdict = res.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', 'NO DATA')
+                            print(f"[*] AI VERDICT: {verdict.strip().upper()}")
+                        else:
+                            print("[X] Claim found, but image failed to download.")
+                except: continue
+
+        except Exception as e:
+            print(f"Chunk failed: {e}")
         
-        for log in logs:
-            raw_data = log['data'].hex()
-            # Convert the first topic to an integer to see the Bounty ID
-            # Usually the ID is in the second or third topic (index 1 or 2)
-            found_ids = []
-            for t in log['topics']:
-                try: found_ids.append(int(t.hex(), 16))
-                except: pass
-            
-            # If our target 136 is in the topics, process it!
-            if TARGET_ID in found_ids:
-                found_count += 1
-                print(f"\n[!] MATCH FOUND: Bounty {TARGET_ID} in Block {log['blockNumber']}")
-                
-                decoded = bytes.fromhex(raw_data).decode('utf-8', 'ignore')
-                img_bytes, path = get_pure_image(decoded + raw_data)
-                
-                if img_bytes:
-                    print(f"[*] Analyzing image: {path[:30]}...")
-                    result = analyze_with_gemini(img_bytes)
-                    ans = result.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', 'ERROR')
-                    print(f"[*] RESULT: {ans.strip().upper()}")
-                else:
-                    print("[X] Could not download image for this claim.")
-
-        if found_count == 0:
-            print("\n[?] Still no 136. It might be even older or under a different contract.")
-            # Print the IDs we DID find so we know what's happening
-            sample_ids = set()
-            for log in logs[:10]:
-                for t in log['topics']:
-                    try: sample_ids.add(int(t.hex(), 16))
-                    except: pass
-            print(f"Sample IDs found in this range: {list(sample_ids)[:5]}")
-
-    except Exception as e: print(f"Error: {e}")
+        current = top
 
 if __name__ == "__main__":
-    run_deep_discovery()
+    run_surgical_scan()
