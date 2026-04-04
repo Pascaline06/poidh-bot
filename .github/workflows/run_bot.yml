@@ -1,13 +1,9 @@
-name: Run POIDH Bot
+name: Run Poidh Bot
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"
   workflow_dispatch:
-
-# CRITICAL: This allows the bot to push state.json changes
-permissions:
-  contents: write
+  schedule:
+    - cron: "*/5 * * * *"  # runs every 5 minutes
 
 jobs:
   run-bot:
@@ -20,20 +16,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: "3.10"
 
       - name: Install dependencies
         run: pip install web3
 
-      - name: Run Bot
+      - name: Run bot
         env:
           ALCHEMY_KEY: ${{ secrets.ALCHEMY_KEY }}
         run: python main.py
-
-      - name: Commit and Push State
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add state.json
-          git commit -m "Update last_block state [skip ci]" || echo "No changes"
-          git push
