@@ -1,62 +1,45 @@
-import time
 from web3 import Web3
 
 # 1. SETUP
 RPC_URL = "https://mainnet.base.org"
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
+CONTRACT = "0x5555Fa783936C260f77385b4E153B9725feF1719"
 
-POIDH_CA = "0x5555Fa783936C260f77385b4E153B9725feF1719"
-EVENT_SIG = "0x8e099c06f3271c67860e48d8347164d6a78655c6be9fcfaa86f714cc7d074c78"
-TARGET_BOUNTY_ID = 136
+# SIGNATURES
+BOUNTY_SIG = "0xd265c5d6a9224c4853317e9e3262b0605b45f0e87c8bfd17d020e54a87c439af"
+CLAIM_SIG  = "0x8e099c06f3271c67860e48d8347164d6a78655c6be9fcfaa86f714cc7d074c78"
 
-# 2. THE WINDOW (Based on your "20 hours ago" screenshot)
-# Block 44222459 was 20 hours ago.
-START_BLOCK = 44220000 
-END_BLOCK = 44240000 
-CHUNK_SIZE = 1000 # Keeps it safe from "Payload Too Large" errors
+# THE TARGET BLOCK (From your Basescan screenshot)
+TARGET_BLOCK = 44222459 
 
-def run_broad_scan():
+def trace_and_judge():
     if not w3.is_connected(): return
-    
-    print(f"--- SCANNING FOR ALL CLAIMS AROUND BLOCK {START_BLOCK} ---")
+    print(f"--- ANALYZING BLOCK {TARGET_BLOCK} ---")
 
-    current_start = START_BLOCK
-    while current_start < END_BLOCK:
-        current_end = min(current_start + CHUNK_SIZE, END_BLOCK)
+    # Fetch EVERYTHING for this contract in that block
+    logs = w3.eth.get_logs({
+        "fromBlock": TARGET_BLOCK,
+        "toBlock": TARGET_BLOCK,
+        "address": w3.to_checksum_address(CONTRACT)
+    })
+
+    print(f"Found {len(logs)} total events. Sorting...")
+
+    for log in logs:
+        sig = log['topics'][0].hex()
         
-        try:
-            # We ONLY filter by the Event Signature (Topic 0)
-            # This avoids any "Topic Index" confusion
-            logs = w3.eth.get_logs({
-                "fromBlock": current_start,
-                "toBlock": current_end,
-                "address": w3.to_checksum_address(POIDH_CA),
-                "topics": [EVENT_SIG] 
-            })
-
-            for log in logs:
-                # Check Topic 3 (The Bounty ID) inside the code
-                try:
-                    bounty_id_hex = log['topics'][3].hex()
-                    found_id = int(bounty_id_hex, 16)
-                    
-                    if found_id == TARGET_BOUNTY_ID:
-                        print(f"\n[!!!] MATCH FOUND: Bounty {found_id}")
-                        print(f"Block: {log['blockNumber']}")
-                        print(f"TX: https://basescan.org/tx/{log['transactionHash'].hex()}")
-                    else:
-                        # Just to show you the bot is actually working:
-                        print(f"Found a claim for Bounty {found_id} (Skipping...)")
-                except:
-                    continue
-
-        except Exception as e:
-            print(f"Error in chunk {current_start}: {e}")
-            time.sleep(1)
-
-        current_start = current_end + 1
-
-    print("\n--- SCAN COMPLETE ---")
+        # IF IT'S A BOUNTY CREATION
+        if sig == BOUNTY_SIG:
+            b_id = int(log['topics'][1].hex(), 16)
+            print(f"\n[NEW BOUNTY] ID: {b_id} | TX: {log['transactionHash'].hex()}")
+            
+        # IF IT'S A CLAIM SUBMISSION
+        elif sig == CLAIM_SIG:
+            b_id = int(log['topics'][3].hex(), 16)
+            claimer = "0x" + log['topics'][2].hex()[-40:]
+            print(f"\n[NEW CLAIM] For Bounty: {b_id}")
+            print(f"  From Submitter: {claimer}")
+            print(f"  Evidence TX: https://basescan.org/tx/{log['transactionHash'].hex()}")
 
 if __name__ == "__main__":
-    run_broad_scan()
+    trace_and_judge()
