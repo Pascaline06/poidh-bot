@@ -10,12 +10,12 @@ API_KEY = os.getenv("GEMINI_API_KEY")
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
 
 CONTRACT_ADDR = "0x5555Fa783936C260f77385b4e153B9725fef1719"
-TARGET_ID_HEX = "88" # Hex for 136
-START_BLOCK = 44229555 
+TARGET_ID = 136
+# We are moving back 50k blocks to find this older bounty
+DEEP_START_BLOCK = 44180000 
 
 def get_pure_image(blob):
-    """Uses regex to find IPFS CIDs or URLs anywhere in the log data."""
-    # Matches Qm... or bafy... CIDs and standard http/ipfs links
+    """Smarter image extractor with longer timeouts for slow gateways."""
     matches = re.findall(r'(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[a-zA-Z0-9]{55}|https?://[^\s<>"]+|ipfs://[^\s<>"]+)', blob)
     if not matches: return None, None
     
@@ -23,67 +23,80 @@ def get_pure_image(blob):
     cid = path.split("/ipfs/")[-1] if "/ipfs/" in path else path
     cid = cid.replace("ipfs://", "").split("?")[0].strip()
     
-    # Try the most reliable gateways first
     gateways = [
         f"https://poidh.xyz/api/ipfs/{cid}", 
         f"https://gateway.pinata.cloud/ipfs/{cid}", 
-        f"https://ipfs.io/ipfs/{cid}"
+        f"https://ipfs.io/ipfs/{cid}",
+        f"https://cloudflare-ipfs.com/ipfs/{cid}"
     ]
     for url in gateways:
         try:
-            res = requests.get(url, timeout=12)
-            if res.status_code == 200:
+            # Increased timeout to 20s to prevent 'Gateway Failed' errors
+            res = requests.get(url, timeout=20) 
+            if res.status_code == 200 and len(res.content) > 1000:
                 return res.content, path
         except: continue
     return None, None
 
 def analyze_with_gemini(img_data):
-    """The AI Judge logic."""
-    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key={API_KEY}"
+    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={API_KEY}"
     try:
         img_b64 = base64.b64encode(img_data).decode('utf-8')
-        payload = {"contents": [{"parts": [{"text": "Is a hand holding a book? Answer YES or NO."}, {"inline_data": {"mime_type": "image/jpeg", "data": img_b64}}]}]}
-        res = requests.post(api_url, json=payload, timeout=20)
+        payload = {"contents": [{"parts": [{"text": "Is a hand holding a book? YES or NO."}, {"inline_data": {"mime_type": "image/jpeg", "data": img_b64}}]}]}
+        res = requests.post(api_url, json=payload, timeout=30)
         return res.json()
     except Exception as e: return {"error": str(e)}
 
-def run_automated_review():
+def run_deep_discovery():
     try:
         current_block = w3.eth.block_number
-        print(f"B01 Recovery: Scanning blocks {START_BLOCK} to {current_block}...")
+        print(f"Deep Scan: Blocks {DEEP_START_BLOCK} to {current_block}")
         
         logs = w3.eth.get_logs({
-            "fromBlock": START_BLOCK,
+            "fromBlock": DEEP_START_BLOCK,
             "toBlock": current_block,
             "address": w3.to_checksum_address(CONTRACT_ADDR)
         })
 
-        print(f"Found {len(logs)} contract events. Hunting for Bounty 136 claims...")
-        processed = 0
+        print(f"Total events found: {len(logs)}. Searching for ID {TARGET_ID}...")
+        found_count = 0
         
         for log in logs:
-            # Combine all data from topics and the data field for a 'fuzzy' search
             raw_data = log['data'].hex()
-            topics_combined = "".join([t.hex() for t in log['topics']])
-            all_hex = (topics_combined + raw_data).lower()
+            # Convert the first topic to an integer to see the Bounty ID
+            # Usually the ID is in the second or third topic (index 1 or 2)
+            found_ids = []
+            for t in log['topics']:
+                try: found_ids.append(int(t.hex(), 16))
+                except: pass
             
-            # If the bounty ID 136 (hex 88) is found anywhere in this event
-            if TARGET_ID_HEX in all_hex:
-                # Decode the raw data to look for the claim's image link
+            # If our target 136 is in the topics, process it!
+            if TARGET_ID in found_ids:
+                found_count += 1
+                print(f"\n[!] MATCH FOUND: Bounty {TARGET_ID} in Block {log['blockNumber']}")
+                
                 decoded = bytes.fromhex(raw_data).decode('utf-8', 'ignore')
-                img_bytes, found_path = get_pure_image(decoded + raw_data)
+                img_bytes, path = get_pure_image(decoded + raw_data)
                 
                 if img_bytes:
-                    processed += 1
-                    print(f"\n[!] ANALYZING B01 CLAIM #{processed}")
-                    print(f"[*] Found: {found_path[:40]}...")
-                    
+                    print(f"[*] Analyzing image: {path[:30]}...")
                     result = analyze_with_gemini(img_bytes)
-                    ans = result.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', 'NO VERDICT')
-                    print(f"[*] AI VERDICT: {ans.strip().upper()}")
+                    ans = result.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', 'ERROR')
+                    print(f"[*] RESULT: {ans.strip().upper()}")
+                else:
+                    print("[X] Could not download image for this claim.")
 
-        print(f"\nScan complete. Successfully judged {processed} claims.")
-    except Exception as e: print(f"[X] Critical Failure: {e}")
+        if found_count == 0:
+            print("\n[?] Still no 136. It might be even older or under a different contract.")
+            # Print the IDs we DID find so we know what's happening
+            sample_ids = set()
+            for log in logs[:10]:
+                for t in log['topics']:
+                    try: sample_ids.add(int(t.hex(), 16))
+                    except: pass
+            print(f"Sample IDs found in this range: {list(sample_ids)[:5]}")
+
+    except Exception as e: print(f"Error: {e}")
 
 if __name__ == "__main__":
-    run_automated_review()
+    run_deep_discovery()
