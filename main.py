@@ -1,45 +1,47 @@
 import os
+import time
 from web3 import Web3
 
-# Using a public RPC, but a private Alchemy/QuickNode key is better for 429 errors
-RPC_URL = os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
+# Use the public RPC but handle it delicately
+RPC_URL = "https://mainnet.base.org"
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
 
-# CONTRACT DATA FROM YOUR LOGS
 TARGET_CA = "0x5555Fa783936C260f77385b4E153B9725feF1719"
-# This is the hash for ClaimCreated(uint256,address,uint256,address,string,string,uint256,string,uint256)
 EVENT_SIG = "0x8e099c06f3271c67860e48d8347164d6a78655c6be9fcfaa86f714cc7d074c78"
 REAL_ID = 136 
-# Start earlier than the birth block to ensure no claims are missed
-START_BLOCK = 44230000 
+START_BLOCK = 44235945 # Block from your Basescan logs
+CHUNK_SIZE = 2000 # Small chunks to avoid 'Payload Too Large'
 
-def final_attempt():
-    print(f"--- RUN #134: THE ABSOLUTE FINAL SCAN FOR ID {REAL_ID} ---")
-    
-    # Correctly pad the ID to 32 bytes (64 hex chars)
+def run_chunked_scan():
+    print(f"--- RUN #135: CHUNKED SCAN FOR ID {REAL_ID} ---")
     topic_id = "0x" + hex(REAL_ID)[2:].zfill(64)
+    latest_block = w3.eth.block_number
     
-    # We use None for topics 1 and 2 to catch any issuer/claimant
-    # and put our target ID in the Topic 3 slot as seen in your log
-    filter_params = {
-        "fromBlock": START_BLOCK,
-        "toBlock": "latest",
-        "address": w3.to_checksum_address(TARGET_CA),
-        "topics": [EVENT_SIG, None, None, topic_id]
-    }
+    current_start = START_BLOCK
+    all_logs = []
 
-    try:
-        logs = w3.eth.get_logs(filter_params)
+    while current_start < latest_block:
+        current_end = min(current_start + CHUNK_SIZE, latest_block)
+        print(f"Checking blocks {current_start} to {current_end}...")
         
-        if not logs:
-            print(f"Still 0. This implies the claims are on a different contract version.")
-        else:
-            print(f"FINALLY! Found {len(logs)} claims.")
-            for log in logs:
-                print(f"TX: https://basescan.org/tx/{log['transactionHash'].hex()}")
-                
-    except Exception as e:
-        print(f"Error: {e}")
+        try:
+            logs = w3.eth.get_logs({
+                "fromBlock": current_start,
+                "toBlock": current_end,
+                "address": w3.to_checksum_address(TARGET_CA),
+                "topics": [EVENT_SIG, None, None, topic_id]
+            })
+            all_logs.extend(logs)
+            # Short sleep to prevent '429 Too Many Requests'
+            time.sleep(0.2) 
+        except Exception as e:
+            print(f"Chunk failed: {e}")
+            
+        current_start = current_end + 1
+
+    print(f"\nFINAL RESULT: Found {len(all_logs)} claims.")
+    for log in all_logs:
+        print(f"Claim TX: https://basescan.org/tx/{log['transactionHash'].hex()}")
 
 if __name__ == "__main__":
-    final_attempt()
+    run_chunked_scan()
