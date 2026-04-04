@@ -1,28 +1,23 @@
-name: Run POIDH Bot
+name: Run Bot
+
 on:
   schedule:
-    - cron: '0 * * * *' # This means "Run every 60 minutes"
-  workflow_dispatch: # This adds a "Start" button for you to test it manually
+    - cron: "*/5 * * * *"  # runs every 5 minutes
+  workflow_dispatch:
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+        uses: actions/setup-python@v4
 
-      - name: Install Tools
-        run: pip install -r requirements.txt
+      - name: Install dependencies
+        run: pip install web3
 
-      - name: Start the Bot
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          BASE_RPC_URL: ${{ secrets.BASE_RPC_URL }}
-          BOT_ADDRESS: ${{ secrets.BOT_ADDRESS }}
-          BOT_PRIVATE_KEY: ${{ secrets.BOT_PRIVATE_KEY }}
-          NEYNAR_API_KEY: ${{ secrets.NEYNAR_API_KEY }}
+      - name: Run bot
         run: python main.py
