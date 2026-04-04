@@ -1,9 +1,13 @@
-name: Run Poidh Bot
+name: Run POIDH Bot
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: "*/5 * * * *"  # runs every 5 minutes
+    - cron: "*/5 * * * *" # Runs every 5 minutes
+  workflow_dispatch: # Allows you to run it manually for testing
+
+# CRITICAL: This gives the bot permission to save state.json back to your repo
+permissions:
+  contents: write
 
 jobs:
   run-bot:
@@ -12,16 +16,27 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          persist-credentials: true
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.10"
+          python-version: '3.10'
 
       - name: Install dependencies
         run: pip install web3
 
-      - name: Run bot
+      - name: Run Bot
         env:
           ALCHEMY_KEY: ${{ secrets.ALCHEMY_KEY }}
         run: python main.py
+
+      - name: Commit and Push State
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add state.json
+          # This line prevents the bot from crashing if there are no new claims to save
+          git commit -m "Update last_block state [skip ci]" || echo "No changes to commit"
+          git push
