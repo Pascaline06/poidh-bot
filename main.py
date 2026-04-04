@@ -6,51 +6,55 @@ from web3 import Web3
 # =========================
 # CONFIG
 # =========================
+# Ensure ALCHEMY_KEY is in your GitHub Secrets!
 RPC_URL = f"https://base-mainnet.g.alchemy.com/v2/{os.getenv('ALCHEMY_KEY')}"
 POIDH_CA = "0x5555Fa783936C260f77385b4E153B9725feF1719"
-# Event signature for ClaimCreated
 EVENT_SIG = "0x8e099c06f3271c67860e48d8347164d6a78655c6be9fcfaa86f714cc7d074c78"
-BOUNTY_ID = 136
 
-CHUNK_SIZE = 500 
+# UPDATED: Target bounty 1122
+BOUNTY_ID = 1122
+
+# Tiny chunks (100) and limited scan (1000) to stop Alchemy 400 errors
+CHUNK_SIZE = 100 
 STATE_FILE = "state.json"
 
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
 
 def load_last_block():
+    """Tells the bot where it left off by reading state.json."""
     try:
         with open(STATE_FILE, "r") as f:
-            return json.load(f)["last_block"]
+            data = json.load(f)
+            return data["last_block"]
     except:
-        # Start scanning near the block where bounty 136 was created
+        # Fallback if state.json is missing
         return 44222459 
 
 def save_last_block(block):
+    """Saves the bot's progress so it doesn't repeat old scans."""
     with open(STATE_FILE, "w") as f:
         json.dump({"last_block": block}, f)
 
 def run_bot():
-    print("🔌 Testing RPC Connection...", flush=True)
+    print("🔌 Connecting to Base Mainnet...", flush=True)
     if not w3.is_connected():
-        print("❌ RPC connection failed", flush=True)
+        print("❌ RPC connection failed. Check your ALCHEMY_KEY.")
         return
     
-    latest_block = w3.eth.block_number
     last_block = load_last_block()
+    current_chain_block = w3.eth.block_number
     
-    # Safety: Limit the scan range per run to avoid Alchemy timeouts
-    if latest_block - last_block > 2000:
-        latest_block = last_block + 2000
+    # We scan a max of 1000 blocks per run to ensure stability
+    target_end_block = min(last_block + 1000, current_chain_block)
 
-    print(f"✅ Connected! Scanning {last_block} → {latest_block}", flush=True)
+    print(f"✅ Connected! Scanning {last_block} → {target_end_block}", flush=True)
 
-    # Pad Bounty ID to 32 bytes for the topic filter
     topic_id = "0x" + hex(BOUNTY_ID)[2:].zfill(64)
     current_start = last_block
     total_matches = 0
 
-    while current_start < latest_block:
-        current_end = min(current_start + CHUNK_SIZE, latest_block)
+    while current_start < target_end_block:
+        current_end = min(current_start + CHUNK_SIZE, target_end_block)
         
         try:
             logs = w3.eth.get_logs({
@@ -64,19 +68,18 @@ def run_bot():
                 tx_hash = log["transactionHash"].hex()
                 claimer = "0x" + log['topics'][2].hex()[-40:]
                 
-                # Decoding the 'description' string from the data field
+                # Decoding submission text
                 try:
                     raw_data = log['data'].hex()
-                    # Skip metadata padding (130 hex chars) to find the text
                     clean_hex = raw_data[130:].split('0000')[0]
                     desc = bytes.fromhex(clean_hex).decode('utf-8', errors='ignore').strip()
                 except:
-                    desc = "[Text hidden in hex]"
+                    desc = "[Decoding error]"
 
-                print(f"\n✅ CLAIM DETECTED")
+                print(f"\n✨ NEW CLAIM DETECTED")
                 print(f"Submitter: {claimer}")
-                print(f"Submission Text: {desc}")
-                print(f"Basescan: https://basescan.org/tx/{tx_hash}")
+                print(f"Message: {desc}")
+                print(f"TX Link: https://basescan.org/tx/{tx_hash}")
                 total_matches += 1
 
         except Exception as e:
@@ -85,9 +88,9 @@ def run_bot():
 
         current_start = current_end + 1
     
-    # Save progress so the next run starts where this one finished
-    save_last_block(latest_block)
-    print(f"\n✅ Run complete. New claims found: {total_matches}")
+    # Save the new spot
+    save_last_block(target_end_block)
+    print(f"\n✅ Scan complete. Claims found: {total_matches}")
 
 if __name__ == "__main__":
     run_bot()
