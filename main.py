@@ -1,56 +1,109 @@
+import time
+import json
 from web3 import Web3
-from eth_abi import decode
 
-# 1. SETUP
-RPC_URL = "https://mainnet.base.org"
+# =========================
+# CONFIG
+# =========================
+RPC_URL = "https://base-mainnet.g.alchemy.com/v2/YOUR_API_KEY"  # CHANGE THIS
+POIDH_CA = "0x5555Fa783936C260f77385b4E153B9725feF1719"
+EVENT_SIG = "0x8e099c06f3271c67860e48d8347164d6a78655c6be9fcfaa86f714cc7d074c78"
+BOUNTY_ID = 136
+
+CHUNK_SIZE = 500
+STATE_FILE = "state.json"
+
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
-CONTRACT_ADDR = "0x5555Fa783936C260f77385b4E153B9725feF1719"
-CLAIM_SIG = "0x8e099c06f3271c67860e48d8347164d6a78655c6be9fcfaa86f714cc7d074c78"
-TARGET_ID = 136
-START_BLOCK = 44222459 
 
-# The "Blueprint" for the ClaimCreated event data
-# Based on the POIDH contract structure
-EVENT_TYPES = ['string', 'uint256', 'uint256'] # title, amount, createdAt
 
-def fetch_and_analyze():
-    if not w3.is_connected(): return
-    latest = w3.eth.block_number
-    print(f"--- ANALYZING SUBMISSIONS FOR BOUNTY {TARGET_ID} ---")
+# =========================
+# STATE MANAGEMENT
+# =========================
+def load_last_block():
+    try:
+        with open(STATE_FILE, "r") as f:
+            return json.load(f)["last_block"]
+    except:
+        return None
 
-    # Scanning from the creation block to now
-    logs = w3.eth.get_logs({
-        "fromBlock": START_BLOCK,
-        "toBlock": latest,
-        "address": w3.to_checksum_address(CONTRACT_ADDR),
-        "topics": [CLAIM_SIG]
-    })
 
-    found_count = 0
-    for log in logs:
-        # Check if Topic 3 matches Bounty 136
-        if int(log['topics'][3].hex(), 16) == TARGET_ID:
-            found_count += 1
-            claimer = "0x" + log['topics'][2].hex()[-40:]
-            tx_hash = log['transactionHash'].hex()
-            
-            # DECODING THE DESCRIPTION
-            # We use eth_abi to pull the actual string out of the hex data
-            raw_data = bytes.fromhex(log['data'].hex()[2:])
-            try:
-                # POIDH stores the submission text as the first string in the data
-                decoded = decode(['string'], raw_data[64:])[0] 
-            except:
-                # Fallback: Just try to strip the hex if ABI decoding fails
-                decoded = w3.to_text(log['data']).strip()
+def save_last_block(block):
+    with open(STATE_FILE, "w") as f:
+        json.dump({"last_block": block}, f)
 
-            print(f"\n[ SUBMISSION #{found_count} ]")
-            print(f"User: {claimer}")
-            print(f"Content: {decoded}")
-            print(f"Verify: https://basescan.org/tx/{tx_hash}")
 
-    if found_count == 0:
-        print("No claims found in this range. Try increasing START_BLOCK.")
+# =========================
+# MAIN BOT LOGIC
+# =========================
+def run_bot():
+    print("🤖 Starting bot run...", flush=True)
 
+    if not w3.is_connected():
+        print("❌ RPC connection failed", flush=True)
+        return
+
+    latest_block = w3.eth.block_number
+    last_block = load_last_block()
+
+    # First run fallback
+    if last_block is None:
+        last_block = latest_block - 3000
+        print(f"⚠️ No state found. Starting from {last_block}", flush=True)
+
+    print(f"🔍 Scanning blocks {last_block} → {latest_block}", flush=True)
+
+    topic_id = "0x" + hex(BOUNTY_ID)[2:].zfill(64)
+
+    current_start = last_block
+    total_matches = 0
+
+    while current_start <= latest_block:
+        current_end = min(current_start + CHUNK_SIZE, latest_block)
+
+        print(f"➡️ Chunk: {current_start} → {current_end}", flush=True)
+
+        try:
+            logs = w3.eth.get_logs({
+                "fromBlock": current_start,
+                "toBlock": current_end,
+                "address": w3.to_checksum_address(POIDH_CA),
+                "topics": [EVENT_SIG, None, None, topic_id]
+            })
+
+            if logs:
+                print(f"🔥 Found {len(logs)} matches!", flush=True)
+
+            for log in logs:
+                tx_hash = log["transactionHash"].hex()
+                block_number = log["blockNumber"]
+
+                print(f"\n✅ MATCH FOUND", flush=True)
+                print(f"Block: {block_number}", flush=True)
+                print(f"TX: https://basescan.org/tx/{tx_hash}", flush=True)
+
+                total_matches += 1
+
+                # 👉 NEXT STEP: evaluation logic goes here
+
+        except Exception as e:
+            print(f"⚠️ Error at {current_start}: {e}", flush=True)
+
+            if "429" in str(e):
+                print("⏳ Rate limited. Sleeping 5s...", flush=True)
+                time.sleep(5)
+            else:
+                time.sleep(2)
+
+        save_last_block(current_end)
+        current_start = current_end + 1
+        time.sleep(1)
+
+    print(f"\n✅ Scan complete. Total matches: {total_matches}", flush=True)
+    print("🏁 Bot run finished.", flush=True)
+
+
+# =========================
+# ENTRY POINT
+# =========================
 if __name__ == "__main__":
-    fetch_and_analyze()
+    run_bot()
