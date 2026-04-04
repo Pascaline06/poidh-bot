@@ -1,42 +1,31 @@
 import os
+import requests
 from web3 import Web3
 
+# --- FINAL HARD CONSTRAINTS ---
 RPC_URL = os.getenv("BASE_RPC_URL")
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
 
-# The most active CA from your discovery screenshot
-PROBABLE_CA = "0x1a90Cb21b770d170821C0EBF56ce6Ffb2942e5D4"
-TARGET_ID = 136
+# YOUR CONFIRMED CA FROM BASESCAN
+TARGET_CA = "0x5555Fa783936C260f77385b4E153B9725feF1719"
+TARGET_ID_HEX = "0x0000000000000000000000000000000000000000000000000000000000000088" # Hex for 136
 
-def final_attempt():
-    print(f"--- RUN #128: TESTING PROBABLE CA FOR ID {TARGET_ID} ---")
-    current = w3.eth.block_number
+def scan_raw_transactions():
+    print(f"--- RUN #129: RAW TRANSACTION DECODE FOR CA {TARGET_CA} ---")
+    current_block = w3.eth.block_number
     
-    try:
-        # Scan 10,000 blocks on the most likely candidate
-        logs = w3.eth.get_logs({
-            "fromBlock": current - 10000,
-            "toBlock": "latest",
-            "address": w3.to_checksum_address(PROBABLE_CA)
-        })
-        
-        print(f"Found {len(logs)} total events on this contract.")
-        id_counts = {}
-        for log in logs:
-            if len(log['topics']) > 1:
-                real_id = int(log['topics'][1].hex(), 16)
-                id_counts[real_id] = id_counts.get(real_id, 0) + 1
-        
-        for b_id, count in id_counts.items():
-            if b_id == TARGET_ID:
-                print(f"[!!!] SUCCESS: Found {count} claims for ID 136 on this contract!")
-                return
-        
-        print("[X] 136 not found here. Printing existing IDs for comparison:")
-        print(id_counts)
-
-    except Exception as e:
-        print(f"Error: {e}")
+    # We scan the last 5,000 blocks specifically for interactions with this CA
+    # This bypasses the 'Event' system which is currently failing us.
+    for i in range(current_block - 5000, current_block + 1):
+        block = w3.eth.get_block(i, full_transactions=True)
+        for tx in block.transactions:
+            if tx.to and tx.to.lower() == TARGET_CA.lower():
+                # Check if the transaction 'input' data contains our Bounty ID (136)
+                if TARGET_ID_HEX in tx.input:
+                    print(f"[!] MATCH FOUND: Transaction {tx.hash.hex()} in Block {i}")
+                    # This confirms the transaction exists and we can now pull the metadata
+    
+    print("Scan complete. If matches appeared above, the bot is now tracking the right data.")
 
 if __name__ == "__main__":
-    final_attempt()
+    scan_raw_transactions()
