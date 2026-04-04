@@ -1,45 +1,51 @@
 import os
+import requests
+import base64
 from web3 import Web3
 
 # --- CONFIG ---
 RPC_URL = os.getenv("BASE_RPC_URL")
+API_KEY = os.getenv("GEMINI_API_KEY")
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
 
-# We will check the two most likely contract addresses
-CONTRACT_A = "0x5555Fa783936C260f77385b4e153B9725fef1719"
-CONTRACT_B = "0xB50D064fde85392D66649fD04E85C93683fba2B3"
+# This is the contract where you found the Bounty 136 birth
+CONTRACT_ADDR = "0x5555Fa783936C260f77385b4e153B9725fef1719"
 
-def discovery_scan():
-    print("--- RUN #117: DISCOVERY MODE ---")
-    current_block = w3.eth.block_number
-    # Scan the last 2000 blocks (~1 hour of activity)
-    start_block = current_block - 2000
+def final_event_hunt():
+    print("--- RUN #118: THE EVENT HUNTER ---")
+    current = w3.eth.block_number
+    # Scanning the last 10,000 blocks to find those 6 claims
+    start = current - 10000 
     
-    for addr in [CONTRACT_A, CONTRACT_B]:
-        print(f"\nChecking Address: {addr}")
-        try:
-            logs = w3.eth.get_logs({
-                "fromBlock": start_block,
-                "toBlock": "latest",
-                "address": w3.to_checksum_address(addr)
-            })
+    # Topic for 'ClaimCreated' event
+    CLAIM_TOPIC = "0x3939634e062635a16f2043685e13d1112d8a4e101966a87752495b2a0c4f8087"
+    
+    try:
+        logs = w3.eth.get_logs({
+            "fromBlock": start,
+            "toBlock": "latest",
+            "address": w3.to_checksum_address(CONTRACT_ADDR),
+            "topics": [CLAIM_TOPIC]
+        })
+
+        if not logs:
+            print("[X] Still no claims found. This contract is definitely not the one with the 6 claims.")
+            return
+
+        print(f"[!] SUCCESS! Found {len(logs)} total claims on this contract.")
+        for log in logs:
+            # The Bounty ID is usually in Topic 1
+            b_id = int(log['topics'][1].hex(), 16)
+            print(f"-> Claim found for Bounty ID: {b_id} in Block {log['blockNumber']}")
             
-            if not logs:
-                print("  > No activity found on this contract in the last hour.")
-                continue
-                
-            print(f"  > Found {len(logs)} recent events. Listing IDs found:")
-            found_ids = set()
-            for log in logs:
-                # Most POIDH events put the Bounty ID in the second topic (index 1)
-                if len(log['topics']) > 1:
-                    b_id = int(log['topics'][1].hex(), 16)
-                    found_ids.add(b_id)
-            
-            print(f"  > Bounty IDs active right now: {sorted(list(found_ids))}")
-            
-        except Exception as e:
-            print(f"  > Error scanning {addr[:10]}: {e}")
+            if b_id == 136:
+                print("   [TARGET ACQUIRED] Found a claim for 136. Processing...")
+                # Extracting IPFS from raw data hex
+                raw_data = bytes.fromhex(log['data'].hex()).decode('utf-8', 'ignore')
+                print(f"   Data: {raw_data[:100]}...")
+
+    except Exception as e:
+        print(f"Error: {e}")
 
 if __name__ == "__main__":
-    discovery_scan()
+    final_event_hunt()
