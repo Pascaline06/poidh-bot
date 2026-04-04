@@ -5,7 +5,7 @@ from web3 import Web3
 # =========================
 # CONFIG
 # =========================
-RPC_URL = "https://base-mainnet.g.alchemy.com/v2/YOUR_API_KEY"  # CHANGE THIS
+RPC_URL = f"https://base-mainnet.g.alchemy.com/v2/{os.getenv('ALCHEMY_KEY')}"  # CHANGE THIS
 POIDH_CA = "0x5555Fa783936C260f77385b4E153B9725feF1719"
 EVENT_SIG = "0x8e099c06f3271c67860e48d8347164d6a78655c6be9fcfaa86f714cc7d074c78"
 BOUNTY_ID = 136
