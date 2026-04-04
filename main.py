@@ -2,20 +2,18 @@ import time
 import json
 import os
 from web3 import Web3
-from google import genai  # Upgraded to the new 2026 SDK
+from google import genai
 
 # =========================
 # CONFIG
 # =========================
 RPC_URL = f"https://base-mainnet.g.alchemy.com/v2/{os.getenv('ALCHEMY_KEY')}"
 POIDH_CA = "0x5555Fa783936C260f77385b4E153B9725feF1719"
+# Event: ClaimCreated(uint256 indexed bountyId, uint256 indexed claimId, address indexed claimer, string description)
 EVENT_SIG = "0x8e099c06f3271c67860e48d8347164d6a78655c6be9fcfaa86f714cc7d074c78"
 BOUNTY_ID = 1122
 
-CHUNK_SIZE = 1000 
 STATE_FILE = "state.json"
-
-# New AI Setup (Gemini 3 Flash)
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
 
@@ -31,83 +29,68 @@ def save_last_block(block):
         json.dump({"last_block": block}, f)
 
 def analyze_claim(text_content):
-    """Uses Gemini 3 Flash to check if the submission sounds like a real book."""
     prompt = f"A user submitted this for a 'Physical Book' bounty: '{text_content}'. Is this a valid-sounding proof? Reply VALID or INVALID with a 1-sentence reason."
     try:
-        # Using the updated 2026 model call
-        response = client.models.generate_content(
-            model="gemini-3-flash", 
-            contents=prompt
-        )
+        response = client.models.generate_content(model="gemini-3-flash", contents=prompt)
         return response.text.strip()
     except Exception as e:
         return f"AI Error: {e}"
 
 def run_bot():
-    print("🔌 Starting Bot & Gemini 3 Evaluator...", flush=True)
+    print("🔌 Starting Bot...", flush=True)
     if not w3.is_connected():
-        print("❌ Connection failed.")
+        print("❌ RPC Connection Failed.")
         return
     
     last_block = load_last_block()
-    current_chain_block = w3.eth.block_number
+    current_block = w3.eth.block_number
     
-    # Scan 5,000 blocks per run to catch those 6 claims from yesterday
-    target_end_block = min(last_block + 5000, current_chain_block)
-
-    print(f"✅ Connected! Scanning {last_block} → {target_end_block}", flush=True)
-
-    # Convert ID to 32-byte hex
-    topic_id = "0x" + hex(BOUNTY_ID)[2:].zfill(64)
+    # We scan in small, healthy chunks of 1000 blocks to avoid Alchemy 400s
+    scan_end = min(last_block + 1000, current_block)
     
-    # FIX: BountyID is Topic 1, not Topic 3!
-    filter_topics = [EVENT_SIG, topic_id, None, None]
-
-    current_start = last_block
-    total_matches = 0
-
-    while current_start < target_end_block:
-        current_end = min(current_start + CHUNK_SIZE, target_end_block)
-        
-        try:
-            logs = w3.eth.get_logs({
-                "fromBlock": hex(current_start), # Using Hex to please Alchemy
-                "toBlock": hex(current_end),
-                "address": w3.to_checksum_address(POIDH_CA),
-                "topics": filter_topics
-            })
-
-            for log in logs:
-                tx_hash = log["transactionHash"].hex()
-                # The claimer is in Topic 3
-                claimer = "0x" + log['topics'][3].hex()[-40:]
-                
-                # Robust decoding of the description string
-                try:
-                    data_hex = log['data'].hex()
-                    # Strings start after the 64-char offset and 64-char length
-                    desc_hex = data_hex[128:]
-                    desc = bytes.fromhex(desc_hex).decode('utf-8', errors='ignore').split('\x00')[0].strip()
-                except:
-                    desc = "[No description found]"
-
-                print(f"\n✨ CLAIM DETECTED")
-                print(f"Submitter: {claimer}")
-                
-                verdict = analyze_claim(desc)
-                print(f"Message: {desc}")
-                print(f"🤖 AI Verdict: {verdict}")
-                print(f"Link: https://basescan.org/tx/{tx_hash}")
-                total_matches += 1
-
-        except Exception as e:
-            print(f"⚠️ Alchemy/RPC Error: {e}")
-            time.sleep(1)
-
-        current_start = current_end + 1
+    # FORMATTING FIX: Convert integers to Hex strings for the RPC request
+    from_hex = hex(last_block)
+    to_hex = hex(scan_end)
     
-    save_last_block(target_end_block)
-    print(f"\n✅ Finished! Found and analyzed {total_matches} claims.")
+    # TOPIC FIX: Ensure the Bounty ID is in the FIRST indexed slot (Topic 1)
+    bounty_topic = "0x" + hex(BOUNTY_ID)[2:].zfill(64)
+    
+    print(f"📡 Scanning Blocks {last_block} to {scan_end}...", flush=True)
+
+    try:
+        logs = w3.eth.get_logs({
+            "fromBlock": from_hex,
+            "toBlock": to_hex,
+            "address": w3.to_checksum_address(POIDH_CA),
+            "topics": [EVENT_SIG, bounty_topic] # Filter: [Signature, BountyID]
+        })
+
+        for log in logs:
+            tx_hash = log["transactionHash"].hex()
+            # Claimer is the 3rd indexed parameter (Topic 3)
+            claimer = "0x" + log['topics'][3].hex()[-40:]
+            
+            # Data contains the non-indexed string (Description)
+            try:
+                # Basic string decoding from EVM data
+                raw_data = log['data'].hex()
+                # Skip the first 128 chars (offset + length markers)
+                clean_hex = raw_data[128:].split('0000')[0] 
+                desc = bytes.fromhex(clean_hex).decode('utf-8', errors='ignore').strip()
+            except:
+                desc = "Could not decode description"
+
+            print(f"\n✨ CLAIM DETECTED")
+            print(f"From: {claimer}")
+            print(f"🤖 AI Verdict: {analyze_claim(desc)}")
+            print(f"Link: https://basescan.org/tx/{tx_hash}")
+
+        save_last_block(scan_end + 1)
+        print(f"✅ Chunk finished. Next scan starts at {scan_end + 1}")
+
+    except Exception as e:
+        # This will print the EXACT error from Alchemy so we can see the 'real' problem
+        print(f"❌ RPC ERROR: {str(e)}")
 
 if __name__ == "__main__":
     run_bot()
