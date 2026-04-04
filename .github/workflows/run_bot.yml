@@ -20,4 +20,6 @@ jobs:
         run: pip install web3
 
       - name: Run bot
-        run: python main.py
+  env:
+    ALCHEMY_KEY: ${{ secrets.ALCHEMY_KEY }}
+  run: python main.py
