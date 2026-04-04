@@ -7,28 +7,44 @@ w3 = Web3(Web3.HTTPProvider(RPC_URL))
 CONTRACT_ADDR = "0x5555Fa783936C260f77385b4e153B9725fef1719"
 TARGET_ID = 136
 
-def find_bounty_block():
-    print(f"Locating Bounty {TARGET_ID}...")
-    # The event hash for BountyCreated
-    CREATED_EVENT = "0x28976766440c4a4f899d45e4682022f465c4901f46f499d34850020138981442"
-    
-    # We scan a massive range because this is a very light search
+def get_bounty_id_at_block(block_num):
+    """Checks the contract's bounty counter at a specific point in history."""
+    # This calls the 'bountyCount' or similar public variable on the contract
+    # If your contract uses a different getter, we adjust this line
     try:
-        logs = w3.eth.get_logs({
-            "fromBlock": 40000000, 
-            "toBlock": "latest",
-            "address": w3.to_checksum_address(CONTRACT_ADDR),
-            "topics": [CREATED_EVENT, w3.to_hex(w3.to_bytes(TARGET_ID).rjust(32, b'\0'))]
-        })
+        # Most POIDH-style contracts have a bountyCount() function
+        count_hex = w3.eth.call({
+            'to': w3.to_checksum_address(CONTRACT_ADDR),
+            'data': '0x3497793e' # Selector for bountyCount()
+        }, block_num)
+        return int(count_hex.hex(), 16)
+    except:
+        return None
 
-        if logs:
-            block = logs[0]['blockNumber']
-            print(f"\n[!!!] FOUND IT: Bounty 136 was created in Block: {block}")
-            print(f"Now we just need to scan block {block} to find the claims.")
+def binary_search_block():
+    print(f"Targeting Bounty {TARGET_ID}. Finding exact block via Binary Search...")
+    
+    # Range: From contract deployment (~40m) to your last seen block
+    low = 40000000 
+    high = 44235945 
+    found_block = high
+
+    while low <= high:
+        mid = (low + high) // 2
+        current_id = get_bounty_id_at_block(mid)
+        
+        if current_id is None: # Block might be too old for some RPCs
+            low = mid + 1
+            continue
+
+        if current_id >= TARGET_ID:
+            found_block = mid
+            high = mid - 1
         else:
-            print("\n[?] Bounty 136 not found in this contract's history.")
-    except Exception as e:
-        print(f"Error: {e}")
+            low = mid + 1
+            
+    print(f"\n[!!!] FOUND IT: Bounty 136 first appeared in Block: {found_block}")
+    print("Now we can scan JUST that block area for the claim images.")
 
 if __name__ == "__main__":
-    find_bounty_block()
+    binary_search_block()
