@@ -2,10 +2,10 @@ name: Run POIDH Bot
 
 on:
   schedule:
-    - cron: "*/5 * * * *" # Runs every 5 minutes
-  workflow_dispatch: # Allows you to run it manually for testing
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
 
-# CRITICAL: This gives the bot permission to save state.json back to your repo
+# REQUIRED for Step 2: Allows the bot to write back to your repo
 permissions:
   contents: write
 
@@ -37,6 +37,5 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add state.json
-          # This line prevents the bot from crashing if there are no new claims to save
-          git commit -m "Update last_block state [skip ci]" || echo "No changes to commit"
+          git commit -m "Update last_block state [skip ci]" || echo "No changes"
           git push
