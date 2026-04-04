@@ -1,53 +1,64 @@
 import time
 import json
 import os
+import requests
 from web3 import Web3
+import google.generativeai as genai
 
 # =========================
 # CONFIG
 # =========================
-# Ensure ALCHEMY_KEY is in your GitHub Secrets!
 RPC_URL = f"https://base-mainnet.g.alchemy.com/v2/{os.getenv('ALCHEMY_KEY')}"
 POIDH_CA = "0x5555Fa783936C260f77385b4E153B9725feF1719"
 EVENT_SIG = "0x8e099c06f3271c67860e48d8347164d6a78655c6be9fcfaa86f714cc7d074c78"
-
-# UPDATED: Target bounty 1122
 BOUNTY_ID = 1122
 
-# Tiny chunks (100) and limited scan (1000) to stop Alchemy 400 errors
 CHUNK_SIZE = 100 
 STATE_FILE = "state.json"
+
+# AI Setup
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+ai_model = genai.GenerativeModel('gemini-1.5-flash')
 
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
 
 def load_last_block():
-    """Tells the bot where it left off by reading state.json."""
     try:
         with open(STATE_FILE, "r") as f:
-            data = json.load(f)
-            return data["last_block"]
+            return json.load(f)["last_block"]
     except:
-        # Fallback if state.json is missing
         return 44222459 
 
 def save_last_block(block):
-    """Saves the bot's progress so it doesn't repeat old scans."""
     with open(STATE_FILE, "w") as f:
         json.dump({"last_block": block}, f)
 
+def analyze_submission(text_content):
+    """Uses Gemini 1.5 Flash to evaluate the claim text/image."""
+    prompt = f"""
+    The user is claiming a bounty for 'Holding a Physical Book'. 
+    Submission description: "{text_content}"
+    
+    Is this a valid-sounding submission for a physical book? 
+    Reply with 'VALID' or 'INVALID' and a short reason.
+    """
+    try:
+        response = ai_model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        return f"AI Error: {e}"
+
 def run_bot():
-    print("🔌 Connecting to Base Mainnet...", flush=True)
+    print("🔌 Connecting and initializing AI...", flush=True)
     if not w3.is_connected():
-        print("❌ RPC connection failed. Check your ALCHEMY_KEY.")
+        print("❌ RPC connection failed.")
         return
     
     last_block = load_last_block()
     current_chain_block = w3.eth.block_number
-    
-    # We scan a max of 1000 blocks per run to ensure stability
     target_end_block = min(last_block + 1000, current_chain_block)
 
-    print(f"✅ Connected! Scanning {last_block} → {target_end_block}", flush=True)
+    print(f"✅ Scanning {last_block} → {target_end_block}", flush=True)
 
     topic_id = "0x" + hex(BOUNTY_ID)[2:].zfill(64)
     current_start = last_block
@@ -68,29 +79,32 @@ def run_bot():
                 tx_hash = log["transactionHash"].hex()
                 claimer = "0x" + log['topics'][2].hex()[-40:]
                 
-                # Decoding submission text
+                # Decode submission text
                 try:
                     raw_data = log['data'].hex()
                     clean_hex = raw_data[130:].split('0000')[0]
                     desc = bytes.fromhex(clean_hex).decode('utf-8', errors='ignore').strip()
                 except:
-                    desc = "[Decoding error]"
+                    desc = "[No text found]"
 
-                print(f"\n✨ NEW CLAIM DETECTED")
-                print(f"Submitter: {claimer}")
-                print(f"Message: {desc}")
-                print(f"TX Link: https://basescan.org/tx/{tx_hash}")
+                print(f"\n🔍 EVALUATING CLAIM: {claimer}")
+                
+                # CALL THE AI
+                ai_verdict = analyze_submission(desc)
+                
+                print(f"Description: {desc}")
+                print(f"AI Verdict: {ai_verdict}")
+                print(f"TX: https://basescan.org/tx/{tx_hash}")
                 total_matches += 1
 
         except Exception as e:
-            print(f"⚠️ Alchemy Error at {current_start}: {e}")
+            print(f"⚠️ Error: {e}")
             time.sleep(1)
 
         current_start = current_end + 1
     
-    # Save the new spot
     save_last_block(target_end_block)
-    print(f"\n✅ Scan complete. Claims found: {total_matches}")
+    print(f"\n✅ Run complete. New claims analyzed: {total_matches}")
 
 if __name__ == "__main__":
     run_bot()
