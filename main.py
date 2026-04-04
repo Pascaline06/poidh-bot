@@ -5,46 +5,50 @@ from web3 import Web3
 RPC_URL = "https://mainnet.base.org"
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
 
-# THE POIDH CONTRACT (Verified from your logs)
 POIDH_CA = "0x5555Fa783936C260f77385b4E153B9725feF1719"
 EVENT_SIG = "0x8e099c06f3271c67860e48d8347164d6a78655c6be9fcfaa86f714cc7d074c78"
 BOUNTY_ID = 136
 
-# 2. THE REAL BLOCK RANGE (Based on your screenshot 032923)
-# Your TX was in block 14,099,451. We scan a small window around it.
-START_BLOCK = 14099000 
-END_BLOCK = 14105000 
-
-def run_bot():
-    if not w3.is_connected(): return
+def run_auto_scan():
+    if not w3.is_connected():
+        print("Connection Failed")
+        return
     
-    # Format ID 136 to 32-byte hex
+    # Get the ACTUAL current block from the network
+    latest_block = w3.eth.block_number
+    # Scan back ~24 hours (roughly 43,200 blocks on Base)
+    start_block = latest_block - 50000 
+    
     topic_id = "0x" + hex(BOUNTY_ID)[2:].zfill(64)
     
-    print(f"--- RUNNING ACCURATE SCAN FOR BOUNTY {BOUNTY_ID} ---")
-    print(f"Scanning range: {START_BLOCK} to {END_BLOCK}")
+    print(f"--- AUTO-SCANNING FROM BLOCK {start_block} TO {latest_block} ---")
 
-    try:
-        # THE FIX: Place bountyId in Topic 3 (Index 3)
-        # Structure: [Event, Topic1, Topic2, Topic3]
-        logs = w3.eth.get_logs({
-            "fromBlock": START_BLOCK,
-            "toBlock": END_BLOCK,
-            "address": w3.to_checksum_address(POIDH_CA),
-            "topics": [EVENT_SIG, None, None, topic_id]
-        })
+    # Use small chunks to avoid the "Payload Too Large" error you saw earlier
+    chunk_size = 2000
+    current_start = start_block
 
-        if not logs:
-            print("No claims found in this range.")
-        else:
+    while current_start < latest_block:
+        current_end = min(current_start + chunk_size, latest_block)
+        
+        try:
+            logs = w3.eth.get_logs({
+                "fromBlock": current_start,
+                "toBlock": current_end,
+                "address": w3.to_checksum_address(POIDH_CA),
+                "topics": [EVENT_SIG, None, None, topic_id]
+            })
+
             for log in logs:
-                tx = log['transactionHash'].hex()
-                print(f"\n[!] CLAIM FOUND!")
-                print(f"Block: {log['blockNumber']}")
-                print(f"TX: https://basescan.org/tx/{tx}")
+                print(f"\n[!] SUCCESS: Claim found in Block {log['blockNumber']}")
+                print(f"TX: https://basescan.org/tx/{log['transactionHash'].hex()}")
 
-    except Exception as e:
-        print(f"Error: {e}")
+        except Exception as e:
+            print(f"Chunk error at {current_start}: {e}")
+            time.sleep(1)
+
+        current_start = current_end + 1
+
+    print("\n--- SCAN FINISHED ---")
 
 if __name__ == "__main__":
-    run_bot()
+    run_auto_scan()
