@@ -1,39 +1,7 @@
-name: Run POIDH Bot
-
-on:
-  schedule:
-    - cron: "*/5 * * * *"
-  workflow_dispatch:
-
-permissions:
-  contents: write
-
-jobs:
-  run-bot:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11' # Upgraded from 3.10
-
-      - name: Install dependencies
-        run: pip install web3 google-genai # Using the new library
-
-      - name: Run Bot
-        env:
-          ALCHEMY_KEY: ${{ secrets.ALCHEMY_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python main.py
-
-      - name: Commit and Push State
+- name: Commit changes
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add state.json
-          git commit -m "Update bookmark [skip ci]" || echo "No changes"
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add last_seen_id.json
+          git commit -m "Update last seen claim ID" || echo "No changes to commit"
           git push
