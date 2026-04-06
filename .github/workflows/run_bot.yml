@@ -11,7 +11,7 @@ jobs:
   check-claims:
     runs-on: ubuntu-latest
     
-    # This line is CRITICAL to allow the bot to save your progress
+    # Allows the bot to update last_seen_id.json in your repo
     permissions:
       contents: write
 
@@ -30,8 +30,10 @@ jobs:
       - name: Run python script
         env:
           ALCHEMY_KEY: ${{ secrets.ALCHEMY_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}  
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          BOT_PRIVATE_KEY: ${{ secrets.BOT_PRIVATE_KEY }}
         run: python main.py
+
       - name: Save progress back to GitHub
         run: |
           git config --local user.email "action@github.com"
