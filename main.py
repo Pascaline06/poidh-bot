@@ -19,18 +19,14 @@ def evaluate_claims_with_ai(new_claims):
         print("⚠️ AI Key missing. Skipping evaluation.")
         return None
 
-    # Prepare the data for the AI
     claims_data = ""
     for c in new_claims:
         claims_data += f"- ID {c[0]}: Title '{c[4]}', Description: '{c[5]}'\n"
 
     print(f"🧠 Sending {len(new_claims)} claims to the AI Brain...")
 
-    # The Prompt: This is your Evaluation Logic
     prompt = (
         f"You are the autonomous judge for POIDH Bounty #{BOUNTY_ID}: 'Holding a Physical Book'.\n"
-        "Your goal is to pick the most authentic and descriptive submission.\n\n"
-        "Submissions:\n" + claims_data + "\n"
         "Pick exactly ONE winner. Respond ONLY with a JSON object:\n"
         '{"winner_id": ID_NUMBER, "reasoning": "A 1-2 sentence explanation of why this won."}'
     )
@@ -43,26 +39,28 @@ def evaluate_claims_with_ai(new_claims):
                 "model": "gpt-4o-mini",
                 "messages": [{"role": "system", "content": "You are a deterministic judge."},
                              {"role": "user", "content": prompt}],
-                "temperature": 0  # 0 makes the AI's choice consistent/deterministic
+                "temperature": 0
             }
         )
-        # Parse the AI response
-        res_json = response.json()
-        content = res_json['choices'][0]['message']['content'].strip()
         
-        # Clean potential markdown from AI response
+        res_json = response.json()
+
+        # --- DEBUGGER: If there's no 'choices', show us the REAL error ---
+        if 'choices' not in res_json:
+            print(f"❌ OpenAI API Error: {json.dumps(res_json, indent=2)}")
+            return None
+        
+        content = res_json['choices'][0]['message']['content'].strip()
         if content.startswith("```json"):
             content = content.replace("```json", "").replace("```", "").strip()
             
         decision = json.loads(content)
         print(f"🏆 AI DECISION: Claim #{decision['winner_id']} wins!")
-        print(f"📝 REASONING: {decision['reasoning']}")
         return decision
 
     except Exception as e:
         print(f"❌ Brain Error: {e}")
         return None
-
 # --- MAIN AUTOMATION ---
 def run_bot():
     w3 = Web3(Web3.HTTPProvider(RPC_URL))
