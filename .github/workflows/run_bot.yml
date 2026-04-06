@@ -30,6 +30,7 @@ jobs:
           ALCHEMY_KEY: ${{ secrets.ALCHEMY_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           BOT_PRIVATE_KEY: ${{ secrets.BOT_PRIVATE_KEY }}
+          FARCASTER_ID: ${{ secrets.FARCASTER_ID }}
         run: python main.py
 
       - name: Save progress
