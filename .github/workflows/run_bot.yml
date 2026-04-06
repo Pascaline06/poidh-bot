@@ -4,14 +4,12 @@ on:
   push:
     branches: [ main ]
   schedule:
-    - cron: '0 * * * *'  # Runs once every hour
-  workflow_dispatch:      # Allows you to click "Run Workflow" manually
+    - cron: '0 * * * *'  # Runs hourly
+  workflow_dispatch:      # Manual trigger button
 
 jobs:
   check-claims:
     runs-on: ubuntu-latest
-    
-    # Allows the bot to update last_seen_id.json in your repo
     permissions:
       contents: write
 
@@ -34,10 +32,10 @@ jobs:
           BOT_PRIVATE_KEY: ${{ secrets.BOT_PRIVATE_KEY }}
         run: python main.py
 
-      - name: Save progress back to GitHub
+      - name: Save progress
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add last_seen_id.json || echo "No file to add yet"
-          git commit -m "Update last seen claim ID" || echo "No changes to commit"
+          git add last_seen_id.json || echo "No state file yet"
+          git commit -m "Update last seen claim ID" || echo "No changes"
           git push
