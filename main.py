@@ -39,8 +39,12 @@ def evaluate_claims_with_ai(new_claims):
     api_key = os.getenv("GEMINI_API_KEY")
     claims_text = "".join([f"- ID {c[0]}: {c[4]} - {c[5]}\n" for c in new_claims])
     
-    # Updated to Gemini 3 Flash for 2026 compatibility
-    model_name = "gemini-3-flash" 
+    # Correct identifier for 2026 Preview models
+    model_name = "gemini-3-flash-preview" 
+    
+    # Fallback to the stable workhorse if the preview isn't available
+    # model_name = "gemini-2.5-flash" 
+
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
     
     prompt = (
@@ -56,6 +60,7 @@ def evaluate_claims_with_ai(new_claims):
         res_json = res.json()
         
         if 'error' in res_json:
+            # This will help us debug if it happens again
             print(f"❌ AI Error: {res_json['error']['message']}")
             return None
             
