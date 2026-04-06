@@ -46,20 +46,43 @@ def execute_onchain_payout(claim_id):
 # --- THE BRAIN (Gemini Logic) ---
 def evaluate_claims_with_ai(new_claims):
     api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        print("⚠️ Gemini API Key missing.")
+        return None
+
     claims_text = "".join([f"- ID {c[0]}: {c[4]} - {c[5]}\n" for c in new_claims])
     
+    # We are being very explicit with the AI here
     prompt = (
-        f"Judge for POIDH Bounty #{BOUNTY_ID}. Pick ONE winner from these:\n{claims_text}\n"
-        'Respond ONLY with JSON: {"winner_id": 123, "reasoning": "text"}'
+        f"You are the autonomous judge for POIDH Bounty #{BOUNTY_ID}. "
+        f"Analyze these submissions and pick the ONE that best fits the theme 'Holding a Physical Book'.\n\n"
+        f"Submissions:\n{claims_text}\n\n"
+        "Respond ONLY with a JSON object. Do not include any other text.\n"
+        'JSON format: {"winner_id": 123, "reasoning": "Explain your choice here."}'
     )
 
     try:
+        # Using Gemini 1.5 Flash (the most reliable free model)
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-        res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"responseMimeType": "application/json"}})
-        content = res.json()['candidates'][0]['content']['parts'][0]['text']
+        res = requests.post(url, json={
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": 0.1,
+                "responseMimeType": "application/json"
+            }
+        })
+        
+        res_json = res.json()
+
+        # --- DEBUGGER: SHOW US THE ERROR ---
+        if 'candidates' not in res_json:
+            print(f"❌ Gemini Error Details: {json.dumps(res_json, indent=2)}")
+            return None
+            
+        content = res_json['candidates'][0]['content']['parts'][0]['text']
         return json.loads(content)
     except Exception as e:
-        print(f"❌ AI Error: {e}")
+        print(f"❌ Brain Error: {e}")
         return None
 
 # --- THE AUTOMATION ---
