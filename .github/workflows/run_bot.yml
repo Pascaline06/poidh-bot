@@ -30,9 +30,8 @@ jobs:
       - name: Run python script
         env:
           ALCHEMY_KEY: ${{ secrets.ALCHEMY_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}  # <--- This is the new bridge!
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}  
         run: python main.py
-
       - name: Save progress back to GitHub
         run: |
           git config --local user.email "action@github.com"
